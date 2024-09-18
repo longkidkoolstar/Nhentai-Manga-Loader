@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Nhentai Manga Loader
 // @namespace    http://www.nhentai.net
-// @version      1.3
-// @description  Loads nhentai manga chapters into one page in a long strip format with a 'Load Manga' button, nicer UI, and proper scaling.
+// @version      1.4
+// @description  Loads nhentai manga chapters into one page in a long strip format with image scaling, click events, and a dark mode for reading.
 // @match        *://nhentai.net/g/*/*
 // @grant        none
 // @noframes
@@ -15,25 +15,44 @@
     function addCustomStyles() {
         const style = document.createElement('style');
         style.innerHTML = `
+            body {
+                background-color: black !important;  /* Change background to black */
+            }
             .manga-separator {
                 text-align: center;
                 font-size: 18px;
-                color: #666;
+                color: #ddd;
                 margin: 30px 0;
                 padding-top: 15px;
-                border-top: 2px solid #ddd;
+                border-top: 2px solid #444;
             }
             .manga-page-container {
-                display: flex;
-                justify-content: center;
-                margin-bottom: 20px;
+                display: block;
+                text-align: center;
+                margin: 20px auto;
             }
             .manga-page-container img {
                 max-width: 100%;
                 height: auto;
-                object-fit: contain;
-                box-shadow: 0px 4px 12px rgba(0, 0, 0, 0.1);
+                margin: 10px 0;
+                display: block;
                 border-radius: 5px;
+                transition: all 0.3s ease;
+            }
+            .manga-page-container img.full-size {
+                max-width: none;
+                width: auto;
+                height: auto;
+            }
+            .ml-counter {
+                background-color: #222;
+                color: white;
+                border-radius: 10px;
+                width: 30px;
+                margin: -12px auto 10px;
+                padding: 5px;
+                border: 1px solid white;
+                position: relative;
             }
             .load-manga-btn {
                 position: fixed;
@@ -68,25 +87,46 @@
         return button;
     }
 
+    // Add page counter below the image
+    function addPageCounter(pageNumber) {
+        const counter = document.createElement('div');
+        counter.className = 'ml-counter';
+        counter.textContent = `Page ${pageNumber}`;
+        return counter;
+    }
+
+    // Function to toggle image size on click
+    function addClickEventToImage(image) {
+        image.addEventListener('click', function() {
+            if (image.classList.contains('full-size')) {
+                image.classList.remove('full-size');
+            } else {
+                image.classList.add('full-size');
+            }
+        });
+    }
+
     // Load all manga images with page separators and scaling
     function loadMangaImages() {
         const totalPages = parseInt(document.querySelector('.num-pages').textContent.trim());
         let currentPage = 1;
 
-        // Function to create the container and page separators
-        function createPageContainer(pageNumber) {
+        function createPageContainer(pageNumber, imgSrc) {
             const container = document.createElement('div');
             container.className = 'manga-page-container';
             
-            const separator = document.createElement('div');
-            separator.className = 'manga-separator';
-            separator.textContent = `Page ${pageNumber}`;
+            const img = document.createElement('img');
+            img.src = imgSrc;
+            img.alt = `Page ${pageNumber}`;
+            container.appendChild(img);
             
-            document.body.appendChild(separator);  // Append the page separator
-            return container;
+            const counter = addPageCounter(pageNumber);
+            container.appendChild(counter);
+
+            addClickEventToImage(img);
+            document.body.appendChild(container);
         }
 
-        // Function to load a specific page
         function loadPage(url) {
             return fetch(url)
                 .then(response => response.text())
@@ -97,23 +137,15 @@
                     const nextLink = doc.querySelector('#image-container > a').href;
                     const imgSrc = imgElement.getAttribute('data-src') || imgElement.src;
 
-                    // Create and append the image to a new container with proper scaling
-                    const pageContainer = createPageContainer(currentPage);
-                    const newImage = document.createElement('img');
-                    newImage.src = imgSrc;
-                    newImage.alt = `Page ${currentPage}`;
-                    pageContainer.appendChild(newImage);
-                    document.body.appendChild(pageContainer);
-
+                    createPageContainer(currentPage, imgSrc);
                     currentPage++;
 
                     if (currentPage <= totalPages && nextLink) {
-                        loadPage(nextLink); // Recursively load the next page
+                        loadPage(nextLink);
                     }
                 });
         }
 
-        // Start loading from the first page
         const firstImageLink = document.querySelector('#image-container > a').href;
         loadPage(firstImageLink);
     }
@@ -127,6 +159,6 @@
     // Add event listener to the button to load images when clicked
     loadMangaButton.addEventListener('click', function() {
         loadMangaImages();
-        loadMangaButton.remove(); // Remove the button after it's clicked
+        loadMangaButton.remove();
     });
 })();
