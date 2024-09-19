@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Nhentai Manga Loader
 // @namespace    http://www.nhentai.net
-// @version      1.4
+// @version      2.2
 // @description  Loads nhentai manga chapters into one page in a long strip format with image scaling, click events, and a dark mode for reading.
 // @match        *://nhentai.net/g/*/*
 // @grant        none
@@ -16,20 +16,20 @@
         const style = document.createElement('style');
         style.innerHTML = `
             body {
-                background-color: black !important;  /* Change background to black */
-            }
-            .manga-separator {
-                text-align: center;
-                font-size: 18px;
+                background-color: #1a1a1a !important; /* Darker background */
                 color: #ddd;
-                margin: 30px 0;
-                padding-top: 15px;
-                border-top: 2px solid #444;
+                margin: 0;
+                font-family: Arial, sans-serif;
+            }
+            #manga-container {
+                max-width: 800px;
+                margin: 0 auto;
+                padding: 20px;
             }
             .manga-page-container {
                 display: block;
                 text-align: center;
-                margin: 20px auto;
+                margin: 20px 0;
             }
             .manga-page-container img {
                 max-width: 100%;
@@ -38,6 +38,7 @@
                 display: block;
                 border-radius: 5px;
                 transition: all 0.3s ease;
+                box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
             }
             .manga-page-container img.full-size {
                 max-width: none;
@@ -48,11 +49,12 @@
                 background-color: #222;
                 color: white;
                 border-radius: 10px;
-                width: 30px;
-                margin: -12px auto 10px;
-                padding: 5px;
+                padding: 5px 10px;
                 border: 1px solid white;
-                position: relative;
+                display: inline-block;
+                margin-top: 10px;
+                font-size: 14px;
+                box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
             }
             .load-manga-btn {
                 position: fixed;
@@ -67,6 +69,7 @@
                 cursor: pointer;
                 box-shadow: 0 6px 12px rgba(0, 0, 0, 0.15);
                 transition: background-color 0.3s ease;
+                z-index: 1000;
             }
             .load-manga-btn:hover {
                 background-color: #2980b9;
@@ -106,29 +109,57 @@
         });
     }
 
+    // Function to hide specified elements
+    function hideElements() {
+        const elementsToHide = [
+            '#image-container',
+            '#content',
+            'nav'
+        ];
+
+        elementsToHide.forEach(selector => {
+            const element = document.querySelector(selector);
+            if (element) {
+                element.style.display = 'none';
+            }
+        });
+    }
+
     // Load all manga images with page separators and scaling
     function loadMangaImages() {
-        const totalPages = parseInt(document.querySelector('.num-pages').textContent.trim());
-        let currentPage = 1;
+        hideElements(); // Hide elements when loading manga
 
+        // Create a main container to hold all the images
+        const mangaContainer = document.createElement('div');
+        mangaContainer.id = 'manga-container';
+        document.body.appendChild(mangaContainer);
+
+        const totalPages = parseInt(document.querySelector('.num-pages').textContent.trim());
+        const initialPage = parseInt(window.location.href.match(/\/g\/\d+\/(\d+)/)[1]); // Extract starting page from URL
+        let currentPage = initialPage;
+
+        // Helper to create the page container with images
         function createPageContainer(pageNumber, imgSrc) {
             const container = document.createElement('div');
             container.className = 'manga-page-container';
-            
+
             const img = document.createElement('img');
             img.src = imgSrc;
             img.alt = `Page ${pageNumber}`;
             container.appendChild(img);
-            
+
             const counter = addPageCounter(pageNumber);
             container.appendChild(counter);
 
             addClickEventToImage(img);
-            document.body.appendChild(container);
+            mangaContainer.appendChild(container);
         }
 
-        function loadPage(url) {
-            return fetch(url)
+        // Recursive function to load pages
+        function loadPage(pageNumber, pageUrl) {
+            if (pageNumber > totalPages) return;
+
+            fetch(pageUrl)
                 .then(response => response.text())
                 .then(html => {
                     const parser = new DOMParser();
@@ -137,17 +168,22 @@
                     const nextLink = doc.querySelector('#image-container > a').href;
                     const imgSrc = imgElement.getAttribute('data-src') || imgElement.src;
 
-                    createPageContainer(currentPage, imgSrc);
-                    currentPage++;
+                    createPageContainer(pageNumber, imgSrc);
 
-                    if (currentPage <= totalPages && nextLink) {
-                        loadPage(nextLink);
+                    if (pageNumber < totalPages && nextLink) {
+                        loadPage(pageNumber + 1, nextLink); // Load the next page with the correct URL
                     }
                 });
         }
 
+        // Load the first image on the current page
+        const firstImageElement = document.querySelector('#image-container > a > img');
+        const firstImgSrc = firstImageElement.getAttribute('data-src') || firstImageElement.src;
+        createPageContainer(currentPage, firstImgSrc);
+
+        // Start loading subsequent images
         const firstImageLink = document.querySelector('#image-container > a').href;
-        loadPage(firstImageLink);
+        loadPage(currentPage + 1, firstImageLink);
     }
 
     // Apply custom styles to the page
