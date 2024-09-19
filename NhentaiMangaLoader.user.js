@@ -208,7 +208,7 @@ function addCustomStyles() {
         loadMangaButton.className = 'load-manga-btn';
         loadMangaButton.style.position = 'fixed';
         loadMangaButton.style.bottom = '0';
-        loadMangaButton.styl`e.right = '0';
+        loadMangaButton.style.right = '0';
         loadMangaButton.style.padding = '5px';
         loadMangaButton.style.margin = '0 10px 10px 0';
         loadMangaButton.style.zIndex = '9999999999';
