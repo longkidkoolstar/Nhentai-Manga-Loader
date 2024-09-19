@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Nhentai Manga Loader
 // @namespace    http://www.nhentai.net
-// @version      2.2
+// @version      2.6
 // @description  Loads nhentai manga chapters into one page in a long strip format with image scaling, click events, and a dark mode for reading.
 // @match        *://nhentai.net/g/*/*
 // @grant        none
@@ -39,11 +39,13 @@
                 border-radius: 5px;
                 transition: all 0.3s ease;
                 box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+                cursor: zoom-in;
             }
             .manga-page-container img.full-size {
                 max-width: none;
                 width: auto;
                 height: auto;
+                cursor: zoom-out;
             }
             .ml-counter {
                 background-color: #222;
@@ -56,37 +58,34 @@
                 font-size: 14px;
                 box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
             }
-            .load-manga-btn {
-                position: fixed;
-                bottom: 20px;
-                right: 20px;
-                background-color: #3498db;
+            .exit-btn {
+                background-color: #e74c3c;
                 color: white;
-                padding: 15px 30px;
-                font-size: 18px;
+                padding: 5px 10px;
+                font-size: 14px;
                 border: none;
                 border-radius: 8px;
                 cursor: pointer;
-                box-shadow: 0 6px 12px rgba(0, 0, 0, 0.15);
-                transition: background-color 0.3s ease;
-                z-index: 1000;
+                box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+                margin: 10px auto;
+                display: block;
+                text-align: center;
             }
-            .load-manga-btn:hover {
-                background-color: #2980b9;
+            .exit-btn:hover {
+                background-color: #c0392b;
             }
-            .load-manga-btn:active {
-                background-color: #1f6391;
+            .exit-btn:active {
+                background-color: #a93226;
             }
         `;
         document.head.appendChild(style);
     }
 
-    // Create the "Load Manga" button
-    function createLoadMangaButton() {
+    // Create the "Exit" button
+    function createExitButton() {
         const button = document.createElement('button');
-        button.textContent = 'Load Manga';
-        button.className = 'load-manga-btn';
-        document.body.appendChild(button);
+        button.textContent = 'Exit';
+        button.className = 'exit-btn';
         return button;
     }
 
@@ -134,6 +133,10 @@
         mangaContainer.id = 'manga-container';
         document.body.appendChild(mangaContainer);
 
+        // Add "Exit" button above the first page
+        const exitButtonTop = createExitButton();
+        mangaContainer.appendChild(exitButtonTop);
+
         const totalPages = parseInt(document.querySelector('.num-pages').textContent.trim());
         const initialPage = parseInt(window.location.href.match(/\/g\/\d+\/(\d+)/)[1]); // Extract starting page from URL
         let currentPage = initialPage;
@@ -157,8 +160,6 @@
 
         // Recursive function to load pages
         function loadPage(pageNumber, pageUrl) {
-            if (pageNumber > totalPages) return;
-
             fetch(pageUrl)
                 .then(response => response.text())
                 .then(html => {
@@ -172,6 +173,15 @@
 
                     if (pageNumber < totalPages && nextLink) {
                         loadPage(pageNumber + 1, nextLink); // Load the next page with the correct URL
+                    } else {
+                        // Once the last page is loaded, add "Exit" button below the last page
+                        const exitButtonBottom = createExitButton();
+                        mangaContainer.appendChild(exitButtonBottom);
+
+                        // Add event listener to the bottom "Exit" button
+                        exitButtonBottom.addEventListener('click', function() {
+                            window.location.reload();
+                        });
                     }
                 });
         }
@@ -184,15 +194,23 @@
         // Start loading subsequent images
         const firstImageLink = document.querySelector('#image-container > a').href;
         loadPage(currentPage + 1, firstImageLink);
+
+        // Add event listener to the top "Exit" button
+        exitButtonTop.addEventListener('click', function() {
+            window.location.reload();
+        });
     }
 
     // Apply custom styles to the page
     addCustomStyles();
 
     // Add the "Load Manga" button
-    const loadMangaButton = createLoadMangaButton();
+    const loadMangaButton = document.createElement('button');
+    loadMangaButton.textContent = 'Load Manga';
+    loadMangaButton.className = 'load-manga-btn';
+    document.body.appendChild(loadMangaButton);
 
-    // Add event listener to the button to load images when clicked
+    // Add event listener to the "Load Manga" button
     loadMangaButton.addEventListener('click', function() {
         loadMangaImages();
         loadMangaButton.remove();
