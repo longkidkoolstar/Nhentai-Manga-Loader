@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Nhentai Manga Loader
 // @namespace    http://www.nhentai.net
-// @version      2.6
+// @version      2.6.1
 // @description  Loads nhentai manga chapters into one page in a long strip format with image scaling, click events, and a dark mode for reading.
 // @match        *://nhentai.net/g/*/*
 // @icon         https://clipground.com/images/nhentai-logo-5.png
@@ -199,27 +199,30 @@ function addCustomStyles() {
     // Apply custom styles to the page
     addCustomStyles();
 
-    // Check if the "Find Similar" button already exists
-    const findSimilarButtons = document.querySelectorAll('.find-similar');
-    if (findSimilarButtons.length > 0) {
-        console.log('Find Similar button already exists.');
-    } else {
-        // Add the "Load Manga" button
-        const loadMangaButton = document.createElement('button');
-        loadMangaButton.textContent = 'Load Manga';
-        loadMangaButton.className = 'load-manga-btn';
-        loadMangaButton.style.position = 'fixed';
-        loadMangaButton.style.bottom = '0';
-        loadMangaButton.style.right = '0';
-        loadMangaButton.style.padding = '5px';
-        loadMangaButton.style.margin = '0 10px 10px 0';
-        loadMangaButton.style.zIndex = '9999999999';
-        document.body.appendChild(loadMangaButton);
-        // Add event listener to the "Load Manga" button
-        loadMangaButton.addEventListener('click', function() {
-            loadMangaImages();
-            loadMangaButton.remove();
-        });
-    }
+    // Wait for the DOM to load before checking for the "Find Similar" button
+    document.addEventListener("DOMContentLoaded", function() {
+        // Check if the "Find Similar" button already exists
+        const findSimilarButtons = document.querySelectorAll('.find-similar');
+        if (findSimilarButtons.length > 0) {
+            console.log('Find Similar button already exists.');
+        } else {
+            // Add the "Load Manga" button
+            const loadMangaButton = document.createElement('button');
+            loadMangaButton.textContent = 'Load Manga';
+            loadMangaButton.className = 'load-manga-btn';
+            loadMangaButton.style.position = 'fixed';
+            loadMangaButton.style.bottom = '0';
+            loadMangaButton.style.right = '0';
+            loadMangaButton.style.padding = '5px';
+            loadMangaButton.style.margin = '0 10px 10px 0';
+            loadMangaButton.style.zIndex = '9999999999';
+            document.body.appendChild(loadMangaButton);
+            // Add event listener to the "Load Manga" button
+            loadMangaButton.addEventListener('click', function() {
+                loadMangaImages();
+                loadMangaButton.remove();
+            });
+        }
+    });
 
 })();
