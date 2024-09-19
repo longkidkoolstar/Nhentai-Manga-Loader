@@ -11,53 +11,46 @@
 (function() {
     'use strict';
 
-    // Helper to create custom style sheets for elements
-    function addCustomStyles() {
-        const style = document.createElement('style');
-        style.innerHTML = `
-            body {
-                background-color: #1a1a1a !important; /* Darker background */
-                color: #ddd;
-                margin: 0;
-                font-family: Arial, sans-serif;
-            }
-            #manga-container {
-                max-width: 800px;
-                margin: 0 auto;
-                padding: 20px;
-            }
-            .manga-page-container {
-                display: block;
-                text-align: center;
-                margin: 20px 0;
-            }
-            .manga-page-container img {
-                max-width: 100%;
-                height: auto;
-                margin: 10px 0;
-                display: block;
-                border-radius: 5px;
-                transition: all 0.3s ease;
-                box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
-                cursor: zoom-in;
-            }
-            .manga-page-container img.full-size {
-                max-width: none;
-                width: auto;
-                height: auto;
-                cursor: zoom-out;
-            }
-            .ml-counter {
-                background-color: #222;
-                color: white;
-                border-radius: 10px;
-                padding: 5px 10px;
-                border: 1px solid white;
-                display: inline-block;
-                margin-top: 10px;
-                font-size: 14px;
-                box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
-            }
+// Helper to create custom style sheets for elements
+function addCustomStyles() {
+    const style = document.createElement('style');
+    style.innerHTML = `
+        #manga-container {
+            max-width: 100vw; /* Full screen width */
+            margin: 0 auto;
+            padding: 0;
+        }
+        .manga-page-container {
+            position: relative;
+            display: block;
+            margin: 0; /* No spacing between pages */
+        }
+        .manga-page-container img {
+            width: 100vw; /* Ensure image takes full width of screen */
+            height: auto;
+            display: block;
+            border-radius: 0; /* Remove rounding for seamless look */
+            transition: all 0.3s ease;
+            box-shadow: none; /* Remove shadow */
+        }
+        .ml-counter {
+            background-color: #222;
+            color: white;
+            border-radius: 10px;
+            width: 40px;
+            margin-left: auto;
+            margin-right: auto;
+            margin-top: -8.8px;
+            padding-left: 5px;
+            padding-right: 5px;
+            border: 1px solid white;
+            z-index: 100;
+            position: relative;
+            font-size: 9px;
+            font-family: 'Open Sans', sans-serif;
+            top: 4px;
+        }
+    
             .exit-btn {
                 background-color: #e74c3c;
                 color: white;
@@ -93,7 +86,7 @@
     function addPageCounter(pageNumber) {
         const counter = document.createElement('div');
         counter.className = 'ml-counter';
-        counter.textContent = `Page ${pageNumber}`;
+        counter.textContent = `${pageNumber}`;
         return counter;
     }
 
@@ -208,8 +201,13 @@
     const loadMangaButton = document.createElement('button');
     loadMangaButton.textContent = 'Load Manga';
     loadMangaButton.className = 'load-manga-btn';
+    loadMangaButton.style.position = 'fixed';
+    loadMangaButton.style.bottom = '0';
+    loadMangaButton.style.right = '0';
+    loadMangaButton.style.padding = '5px';
+    loadMangaButton.style.margin = '0 10px 10px 0';
+    loadMangaButton.style.zIndex = '9999999999';
     document.body.appendChild(loadMangaButton);
-
     // Add event listener to the "Load Manga" button
     loadMangaButton.addEventListener('click', function() {
         loadMangaImages();
