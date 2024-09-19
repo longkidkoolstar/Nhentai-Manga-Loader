@@ -197,20 +197,27 @@ function addCustomStyles() {
     // Apply custom styles to the page
     addCustomStyles();
 
-    // Add the "Load Manga" button
-    const loadMangaButton = document.createElement('button');
-    loadMangaButton.textContent = 'Load Manga';
-    loadMangaButton.className = 'load-manga-btn';
-    loadMangaButton.style.position = 'fixed';
-    loadMangaButton.style.bottom = '0';
-    loadMangaButton.style.right = '0';
-    loadMangaButton.style.padding = '5px';
-    loadMangaButton.style.margin = '0 10px 10px 0';
-    loadMangaButton.style.zIndex = '9999999999';
-    document.body.appendChild(loadMangaButton);
-    // Add event listener to the "Load Manga" button
-    loadMangaButton.addEventListener('click', function() {
-        loadMangaImages();
-        loadMangaButton.remove();
-    });
+    // Check if the "Find Similar" button already exists
+    const findSimilarButtons = document.querySelectorAll('.find-similar');
+    if (findSimilarButtons.length > 0) {
+        console.log('Find Similar button already exists.');
+    } else {
+        // Add the "Load Manga" button
+        const loadMangaButton = document.createElement('button');
+        loadMangaButton.textContent = 'Load Manga';
+        loadMangaButton.className = 'load-manga-btn';
+        loadMangaButton.style.position = 'fixed';
+        loadMangaButton.style.bottom = '0';
+        loadMangaButton.styl`e.right = '0';
+        loadMangaButton.style.padding = '5px';
+        loadMangaButton.style.margin = '0 10px 10px 0';
+        loadMangaButton.style.zIndex = '9999999999';
+        document.body.appendChild(loadMangaButton);
+        // Add event listener to the "Load Manga" button
+        loadMangaButton.addEventListener('click', function() {
+            loadMangaImages();
+            loadMangaButton.remove();
+        });
+    }
+
 })();
