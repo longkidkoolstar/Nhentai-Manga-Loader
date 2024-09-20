@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Nhentai Manga Loader
 // @namespace    http://www.nhentai.net
-// @version      2.6.2
+// @version      2.6.3
 // @description  Loads nhentai manga chapters into one page in a long strip format with image scaling, click events, and a dark mode for reading.
 // @match        *://nhentai.net/g/*/*
 // @icon         https://clipground.com/images/nhentai-logo-5.png
@@ -28,9 +28,9 @@ function addCustomStyles() {
             margin: 0; /* No spacing between pages */
         }
         .manga-page-container img {
-            width: 100vw; /* Ensure image takes full width of screen */
-            height: auto;
+            max-width: 100%;
             display: block;
+            margin: 3px auto;
             border-radius: 0; /* Remove rounding for seamless look */
             transition: all 0.3s ease;
             box-shadow: none; /* Remove shadow */
