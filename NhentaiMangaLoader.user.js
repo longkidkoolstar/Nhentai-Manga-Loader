@@ -103,6 +103,14 @@ function addCustomStyles() {
         });
     }
 
+        // Function to reload image on error
+        function addErrorHandlingToImage(image, imgSrc) {
+            image.onerror = function() {
+                console.warn(`Failed to load image: ${imgSrc}. Retrying...`);
+                image.src = imgSrc; // Reload the image
+            };
+        }
+
     // Function to hide specified elements
     function hideElements() {
         const elementsToHide = [
@@ -144,6 +152,10 @@ function addCustomStyles() {
             const img = document.createElement('img');
             img.src = imgSrc;
             img.alt = `Page ${pageNumber}`;
+            
+            // Add error handling for image loading
+            addErrorHandlingToImage(img, imgSrc);
+
             container.appendChild(img);
 
             const counter = addPageCounter(pageNumber);
