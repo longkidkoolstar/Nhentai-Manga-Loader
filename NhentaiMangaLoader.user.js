@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Nhentai Manga Loader
 // @namespace    http://www.nhentai.net
-// @version      2.6.3
+// @version      2.7
 // @description  Loads nhentai manga chapters into one page in a long strip format with image scaling, click events, and a dark mode for reading.
 // @match        *://nhentai.net/g/*/*
 // @icon         https://clipground.com/images/nhentai-logo-5.png
@@ -13,7 +13,8 @@
 (function() {
     'use strict';
 
-// Helper to create custom style sheets for elements
+    // Helper to create custom style sheets for elements
+  // Helper to create custom style sheets for elements
 function addCustomStyles() {
     const style = document.createElement('style');
     style.innerHTML = `
@@ -76,6 +77,7 @@ function addCustomStyles() {
         document.head.appendChild(style);
     }
 
+
     // Create the "Exit" button
     function createExitButton() {
         const button = document.createElement('button');
@@ -103,22 +105,17 @@ function addCustomStyles() {
         });
     }
 
-        // Function to reload image on error
-        function addErrorHandlingToImage(image, imgSrc) {
-            image.onerror = function() {
-                console.warn(`Failed to load image: ${imgSrc}. Retrying...`);
-                image.src = imgSrc; // Reload the image
-            };
-        }
+    // Function to reload image on error
+    function addErrorHandlingToImage(image, imgSrc) {
+        image.onerror = function() {
+            console.warn(`Failed to load image: ${imgSrc}. Retrying...`);
+            image.src = imgSrc;
+        };
+    }
 
     // Function to hide specified elements
     function hideElements() {
-        const elementsToHide = [
-            '#image-container',
-            '#content',
-            'nav'
-        ];
-
+        const elementsToHide = ['#image-container', '#content', 'nav'];
         elementsToHide.forEach(selector => {
             const element = document.querySelector(selector);
             if (element) {
@@ -129,19 +126,17 @@ function addCustomStyles() {
 
     // Load all manga images with page separators and scaling
     function loadMangaImages() {
-        hideElements(); // Hide elements when loading manga
+        hideElements();
 
-        // Create a main container to hold all the images
         const mangaContainer = document.createElement('div');
         mangaContainer.id = 'manga-container';
         document.body.appendChild(mangaContainer);
 
-        // Add "Exit" button above the first page
         const exitButtonTop = createExitButton();
         mangaContainer.appendChild(exitButtonTop);
 
         const totalPages = parseInt(document.querySelector('.num-pages').textContent.trim());
-        const initialPage = parseInt(window.location.href.match(/\/g\/\d+\/(\d+)/)[1]); // Extract starting page from URL
+        const initialPage = parseInt(window.location.href.match(/\/g\/\d+\/(\d+)/)[1]);
         let currentPage = initialPage;
 
         // Helper to create the page container with images
@@ -152,10 +147,8 @@ function addCustomStyles() {
             const img = document.createElement('img');
             img.src = imgSrc;
             img.alt = `Page ${pageNumber}`;
-            
-            // Add error handling for image loading
-            addErrorHandlingToImage(img, imgSrc);
 
+            addErrorHandlingToImage(img, imgSrc);
             container.appendChild(img);
 
             const counter = addPageCounter(pageNumber);
@@ -163,10 +156,15 @@ function addCustomStyles() {
 
             addClickEventToImage(img);
             mangaContainer.appendChild(container);
+
+                       // Observe the container to load the image when in the viewport
+                       observePageContainer(container);
+
+            return container;
         }
 
-        // Recursive function to load pages
-        function loadPage(pageNumber, pageUrl) {
+        // Function to load a single page
+        function loadPage(pageNumber, pageUrl, callback) {
             fetch(pageUrl)
                 .then(response => response.text())
                 .then(html => {
@@ -176,16 +174,19 @@ function addCustomStyles() {
                     const nextLink = doc.querySelector('#image-container > a').href;
                     const imgSrc = imgElement.getAttribute('data-src') || imgElement.src;
 
-                    createPageContainer(pageNumber, imgSrc);
+                    const pageContainer = createPageContainer(pageNumber, imgSrc);
 
+                    if (callback) {
+                        callback(pageContainer);
+                    }
+
+                    // Continue loading the next page if needed
                     if (pageNumber < totalPages && nextLink) {
-                        loadPage(pageNumber + 1, nextLink); // Load the next page with the correct URL
+                        loadPage(pageNumber + 1, nextLink);
                     } else {
-                        // Once the last page is loaded, add "Exit" button below the last page
                         const exitButtonBottom = createExitButton();
                         mangaContainer.appendChild(exitButtonBottom);
 
-                        // Add event listener to the bottom "Exit" button
                         exitButtonBottom.addEventListener('click', function() {
                             window.location.reload();
                         });
@@ -193,36 +194,49 @@ function addCustomStyles() {
                 });
         }
 
-        // Load the first image on the current page
         const firstImageElement = document.querySelector('#image-container > a > img');
         const firstImgSrc = firstImageElement.getAttribute('data-src') || firstImageElement.src;
         createPageContainer(currentPage, firstImgSrc);
 
-        // Start loading subsequent images
         const firstImageLink = document.querySelector('#image-container > a').href;
         loadPage(currentPage + 1, firstImageLink);
 
-        // Add event listener to the top "Exit" button
         exitButtonTop.addEventListener('click', function() {
             window.location.reload();
         });
     }
 
-    // Apply custom styles to the page
+    // Create an IntersectionObserver to prioritize loading images that are in or near the viewport
+    const observer = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+            if (entry.isIntersecting) {
+                const imgElement = entry.target.querySelector('img');
+                if (imgElement && imgElement.dataset.src) {
+                    imgElement.src = imgElement.dataset.src;
+                    observer.unobserve(entry.target);
+                }
+            }
+        });
+    }, {
+        rootMargin: '200px 0px', // Start loading when near the viewport
+        threshold: 0.1 // Start loading when 10% of the image is visible
+    });
+
+    // Use the observer when images are created
+    function observePageContainer(container) {
+        console.log('Observing page container:', container);
+        observer.observe(container);
+        console.log('Observed page container');
+    }
     addCustomStyles();
 
-// Check if the image container has an image
-function isImageContainerVisible() {
-    const imageContainer = document.querySelector('#image-container');
-    return imageContainer && imageContainer.querySelector('img');
-}
+    // Check if the image container has an image
+    function isImageContainerVisible() {
+        const imageContainer = document.querySelector('#image-container');
+        return imageContainer && imageContainer.querySelector('img');
+    }
 
-// Modify the code to add the "Load Manga" button conditionally
-if (isImageContainerVisible()) {
-    // Check if the "Find Similar" button already exists
-    const findSimilarButtons = document.querySelectorAll('.find-similar');
-    if (findSimilarButtons.length === 0) {
-        // Add the "Load Manga" button
+    if (isImageContainerVisible()) {
         const loadMangaButton = document.createElement('button');
         loadMangaButton.textContent = 'Load Manga';
         loadMangaButton.className = 'load-manga-btn';
@@ -234,13 +248,9 @@ if (isImageContainerVisible()) {
         loadMangaButton.style.zIndex = '9999999999';
         document.body.appendChild(loadMangaButton);
 
-        // Add event listener to the "Load Manga" button
         loadMangaButton.addEventListener('click', function() {
             loadMangaImages();
             loadMangaButton.remove();
         });
     }
-}
-
-
 })();
