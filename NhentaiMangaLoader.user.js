@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Nhentai Manga Loader
 // @namespace    http://www.nhentai.net
-// @version      2.7
+// @version      3.0
 // @description  Loads nhentai manga chapters into one page in a long strip format with image scaling, click events, and a dark mode for reading.
 // @match        *://nhentai.net/g/*/*
 // @icon         https://clipground.com/images/nhentai-logo-5.png
@@ -13,47 +13,50 @@
 (function() {
     'use strict';
 
+    let loadedPages = 0; // Track loaded pages
+    let totalPages = 0; // Track total pages
+    let loadingImages = 0; // Track loading images
+    let totalImages = 0; // Track total images
+
     // Helper to create custom style sheets for elements
-  // Helper to create custom style sheets for elements
-function addCustomStyles() {
-    const style = document.createElement('style');
-    style.innerHTML = `
-        #manga-container {
-            max-width: 100vw; /* Full screen width */
-            margin: 0 auto;
-            padding: 0;
-        }
-        .manga-page-container {
-            position: relative;
-            display: block;
-            margin: 0; /* No spacing between pages */
-        }
-        .manga-page-container img {
-            max-width: 100%;
-            display: block;
-            margin: 3px auto;
-            border-radius: 0; /* Remove rounding for seamless look */
-            transition: all 0.3s ease;
-            box-shadow: none; /* Remove shadow */
-        }
-        .ml-counter {
-            background-color: #222;
-            color: white;
-            border-radius: 10px;
-            width: 40px;
-            margin-left: auto;
-            margin-right: auto;
-            margin-top: -8.8px;
-            padding-left: 5px;
-            padding-right: 5px;
-            border: 1px solid white;
-            z-index: 100;
-            position: relative;
-            font-size: 9px;
-            font-family: 'Open Sans', sans-serif;
-            top: 4px;
-        }
-    
+    function addCustomStyles() {
+        const style = document.createElement('style');
+        style.innerHTML = `
+            #manga-container {
+                max-width: 100vw;
+                margin: 0 auto;
+                padding: 0;
+            }
+            .manga-page-container {
+                position: relative;
+                display: block;
+                margin: 0;
+            }
+            .manga-page-container img {
+                max-width: 100%;
+                display: block;
+                margin: 3px auto;
+                border-radius: 0;
+                transition: all 0.3s ease;
+                box-shadow: none;
+            }
+            .ml-counter {
+                background-color: #222;
+                color: white;
+                border-radius: 10px;
+                width: 40px;
+                margin-left: auto;
+                margin-right: auto;
+                margin-top: -8.8px;
+                padding-left: 5px;
+                padding-right: 5px;
+                border: 1px solid white;
+                z-index: 100;
+                position: relative;
+                font-size: 9px;
+                font-family: 'Open Sans', sans-serif;
+                top: 4px;
+            }
             .exit-btn {
                 background-color: #e74c3c;
                 color: white;
@@ -73,10 +76,41 @@ function addCustomStyles() {
             .exit-btn:active {
                 background-color: #a93226;
             }
+            .ml-stats {
+                position: fixed;
+                bottom: 10px;
+                right: 10px;
+                background-color: rgba(0, 0, 0, 0.8);
+                color: white;
+                border-radius: 8px;
+                padding: 10px;
+                z-index: 1000;
+                font-family: 'Open Sans', sans-serif;
+                display: flex;
+                flex-direction: column;
+                align-items: flex-start;
+            }
+            .ml-stats-content {
+                display: flex;
+                align-items: center;
+                cursor: pointer;
+            }
+            .ml-button {
+                cursor: pointer;
+                margin-left: 5px;
+            }
+            .ml-box {
+                display: none;
+                background-color: #333;
+                color: white;
+                padding: 10px;
+                border-radius: 5px;
+                margin-top: 5px;
+                width: 200px;
+            }
         `;
         document.head.appendChild(style);
     }
-
 
     // Create the "Exit" button
     function createExitButton() {
@@ -94,16 +128,118 @@ function addCustomStyles() {
         return counter;
     }
 
-    // Function to toggle image size on click
-    function addClickEventToImage(image) {
-        image.addEventListener('click', function() {
-            if (image.classList.contains('full-size')) {
-                image.classList.remove('full-size');
-            } else {
-                image.classList.add('full-size');
-            }
-        });
+    // Update stats display
+    function updateStats() {
+        const statsContainer = document.querySelector('.ml-stats-pages');
+        if (statsContainer) {
+            statsContainer.textContent = `${loadedPages}/${totalPages} loaded`;
+        }
+        const loadingContainer = document.querySelector('.ml-loading-images');
+        if (loadingContainer) {
+            loadingContainer.textContent = `${loadingImages} images loading`;
+        }
+        const totalImagesContainer = document.querySelector('.ml-total-images');
+        if (totalImagesContainer) {
+            totalImagesContainer.textContent = `${totalImages} images in chapter`;
+        }
     }
+
+// Declare reloadMode at the top level
+let reloadMode = false; // Flag to track reload mode
+
+function createStatsWindow() {
+    const statsWindow = document.createElement('div');
+    statsWindow.className = 'ml-stats';
+
+    // Use a wrapper to keep the button and content aligned
+    const statsWrapper = document.createElement('div');
+    statsWrapper.style.display = 'flex';
+    statsWrapper.style.alignItems = 'center'; // Center vertically
+
+    const collapseButton = document.createElement('span');
+    collapseButton.className = 'ml-stats-collapse';
+    collapseButton.title = 'Hide stats';
+    collapseButton.textContent = '>>';
+    collapseButton.style.cursor = 'pointer';
+    collapseButton.style.marginRight = '10px'; // Space between button and content
+    collapseButton.addEventListener('click', function() {
+        contentContainer.style.display = contentContainer.style.display === 'none' ? 'block' : 'none';
+        collapseButton.textContent = contentContainer.style.display === 'none' ? '<<' : '>>';
+    });
+
+    const contentContainer = document.createElement('div');
+    contentContainer.className = 'ml-stats-content';
+
+    const statsText = document.createElement('span');
+    statsText.className = 'ml-stats-pages';
+    statsText.textContent = `0/0 loaded`; // Initial stats
+
+    const infoButton = document.createElement('i');
+    infoButton.className = 'fa fa-question-circle ml-button ml-info-button'; // Changed icon
+    infoButton.title = 'See userscript information and help';
+    infoButton.addEventListener('click', function() {
+        alert('This userscript loads manga pages in a single view. Click on an image to toggle size.');
+    });
+
+    const moreStatsButton = document.createElement('i');
+    moreStatsButton.className = 'fa fa-chart-pie ml-button ml-more-stats-button'; // Changed icon
+    moreStatsButton.title = 'See detailed page stats';
+    moreStatsButton.addEventListener('click', function() {
+        const statsBox = document.querySelector('.ml-floating-msg');
+        statsBox.style.display = statsBox.style.display === 'block' ? 'none' : 'block';
+    });
+
+    const refreshButton = document.createElement('i');
+    refreshButton.className = 'fa fa-sync-alt ml-button ml-manual-reload'; // Changed icon
+    refreshButton.title = 'Click an image to reload it.';
+    refreshButton.addEventListener('click', function() {
+        reloadMode = !reloadMode; // Toggle reload mode
+        refreshButton.style.color = reloadMode ? 'orange' : ''; // Change color to indicate state
+        console.log(`Reload mode is now ${reloadMode ? 'enabled' : 'disabled'}.`);
+    });
+
+    contentContainer.appendChild(statsText);
+    contentContainer.appendChild(infoButton);
+    contentContainer.appendChild(moreStatsButton);
+    contentContainer.appendChild(refreshButton);
+
+    statsWrapper.appendChild(collapseButton);
+    statsWrapper.appendChild(contentContainer);
+    statsWindow.appendChild(statsWrapper);
+
+    const statsBox = document.createElement('pre');
+    statsBox.className = 'ml-box ml-floating-msg';
+    statsBox.innerHTML = `<strong>Stats:</strong><br><span class="ml-loading-images">0 images loading</span><br><span class="ml-total-images">536 images in chapter</span><br><span class="ml-loaded-pages">0 pages parsed</span>`;
+    statsBox.style.display = 'none'; // Initially hidden
+    statsWindow.appendChild(statsBox);
+
+    // Add hover effect
+    statsWindow.style.transition = 'opacity 0.3s';
+    statsWindow.style.opacity = '0.6'; // Dimmed by default
+
+    statsWindow.addEventListener('mouseenter', function() {
+        statsWindow.style.opacity = '1'; // Fully visible on hover
+    });
+
+    statsWindow.addEventListener('mouseleave', function() {
+        statsWindow.style.opacity = '0.6'; // Dim again on mouse leave
+    });
+
+    document.body.appendChild(statsWindow);
+}
+
+
+// Add the click event to images
+function addClickEventToImage(image) {
+    image.addEventListener('click', function() {
+        if (reloadMode) {
+            const imgSrc = image.dataset.src || image.src; // Get the source from data-src or src
+            image.src = ''; // Clear the src to trigger reload
+            image.src = imgSrc; // Set it again to reload
+            console.log(`Reloading image: ${imgSrc}`);
+        }
+    });
+}
 
     // Function to reload image on error
     function addErrorHandlingToImage(image, imgSrc) {
@@ -135,7 +271,8 @@ function addCustomStyles() {
         const exitButtonTop = createExitButton();
         mangaContainer.appendChild(exitButtonTop);
 
-        const totalPages = parseInt(document.querySelector('.num-pages').textContent.trim());
+        totalPages = parseInt(document.querySelector('.num-pages').textContent.trim());
+        totalImages = totalPages; // Update total images for stats
         const initialPage = parseInt(window.location.href.match(/\/g\/\d+\/(\d+)/)[1]);
         let currentPage = initialPage;
 
@@ -157,14 +294,19 @@ function addCustomStyles() {
             addClickEventToImage(img);
             mangaContainer.appendChild(container);
 
-                       // Observe the container to load the image when in the viewport
-                       observePageContainer(container);
+            loadedPages++; // Increment loaded pages count
+            updateStats(); // Update stats display
+
+            observePageContainer(container);
 
             return container;
         }
 
         // Function to load a single page
-        function loadPage(pageNumber, pageUrl, callback) {
+        function loadPage(pageNumber, pageUrl) {
+            loadingImages++;
+            updateStats(); // Update loading images count
+
             fetch(pageUrl)
                 .then(response => response.text())
                 .then(html => {
@@ -176,9 +318,8 @@ function addCustomStyles() {
 
                     const pageContainer = createPageContainer(pageNumber, imgSrc);
 
-                    if (callback) {
-                        callback(pageContainer);
-                    }
+                    loadingImages--;
+                    updateStats(); // Update loading images count
 
                     // Continue loading the next page if needed
                     if (pageNumber < totalPages && nextLink) {
@@ -191,6 +332,11 @@ function addCustomStyles() {
                             window.location.reload();
                         });
                     }
+                })
+                .catch(err => {
+                    loadingImages--;
+                    console.error(err);
+                    updateStats(); // Update loading images count
                 });
         }
 
@@ -218,17 +364,17 @@ function addCustomStyles() {
             }
         });
     }, {
-        rootMargin: '200px 0px', // Start loading when near the viewport
-        threshold: 0.1 // Start loading when 10% of the image is visible
+        rootMargin: '200px 0px',
+        threshold: 0.1
     });
 
     // Use the observer when images are created
     function observePageContainer(container) {
-        console.log('Observing page container:', container);
         observer.observe(container);
-        console.log('Observed page container');
     }
+    
     addCustomStyles();
+    createStatsWindow(); // Create the stats window
 
     // Check if the image container has an image
     function isImageContainerVisible() {
