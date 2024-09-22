@@ -1,13 +1,13 @@
 // ==UserScript==
 // @name         Nhentai Manga Loader
 // @namespace    http://www.nhentai.net
-// @version      3.2
+// @version      3.3
 // @description  Loads nhentai manga chapters into one page in a long strip format with image scaling, click events, and a dark mode for reading.
 // @match        *://nhentai.net/g/*/*
 // @icon         https://clipground.com/images/nhentai-logo-5.png
-// @grant GM.getValue
-// @grant GM.setValue
-// @grant GM.deleteValue
+// @grant        GM.getValue
+// @grant        GM.setValue
+// @grant        GM.deleteValue
 // @license      MIT
 // @noframes
 // ==/UserScript==
@@ -246,13 +246,15 @@ async function createStatsWindow() {
 function addClickEventToImage(image) {
     image.addEventListener('click', function() {
         if (reloadMode) {
-            const imgSrc = image.dataset.src || image.src; // Get the source from data-src or src
+            const imgSrc = image.dataset.src || image.src;
             image.src = ''; // Clear the src to trigger reload
-            image.src = imgSrc; // Set it again to reload
-            console.log(`Reloading image: ${imgSrc}`);
+            setTimeout(() => {
+                image.src = imgSrc; // Retry loading after clearing
+            }, 100); // Short delay to ensure proper reload
         }
     });
 }
+
 
 
     // Function to hide specified elements
@@ -288,101 +290,92 @@ function loadMangaImages() {
 
     // Queue for tracking loading images
     const loadingQueue = [];
-    const maxConcurrentLoads = 50; // Maximum number of concurrent image loads
+    const maxConcurrentLoads = 40; // Maximum number of concurrent image loads
 
     // Helper to create the page container with images
     function createPageContainer(pageNumber, imgSrc) {
         const container = document.createElement('div');
         container.className = 'manga-page-container';
-    
-        // Create the placeholder image
-        const placeholder = document.createElement('img');
-        placeholder.src = 'path/to/placeholder.jpg'; // URL of your low-res or blurred placeholder
-        placeholder.alt = `Loading page ${pageNumber}`;
-        placeholder.className = 'placeholder-image'; // Optional: add CSS for styling
-    
+
         // Create the actual image element
         const img = document.createElement('img');
         img.src = ''; // Start with empty src to avoid loading it immediately
         img.dataset.src = imgSrc; // Store the actual src in data attribute
         img.alt = `Page ${pageNumber}`;
-    
-        // Append the placeholder and the image
-        container.appendChild(placeholder);
+
+        // Add page counter below the image
+        const pageCounter = addPageCounter(pageNumber);
+
+        // Append the image and page counter
         container.appendChild(img);
-    
+        container.appendChild(pageCounter); // <-- Page number is shown here
+
         // Track the image status
         imageStatus[pageNumber] = { src: imgSrc, loaded: false, attempts: 0 };
-    
+
         // Error handling and event listeners
         addErrorHandlingToImage(img, imgSrc, pageNumber);
         addClickEventToImage(img);
         mangaContainer.appendChild(container);
-    
+
         loadedPages++; // Increment loaded pages count
         updateStats(); // Update stats display
-    
+
         observePageContainer(container); // Observe for lazy loading
-    
+
         // Start loading the actual image
         img.src = imgSrc; // Set the src to load the image
-    
-        // Replace the placeholder with the actual image on load
+
+        // Mark as loaded on load
         img.onload = () => {
-            placeholder.style.display = 'none'; // Hide placeholder
-            img.style.display = 'block'; // Show the actual image
             imageStatus[pageNumber].loaded = true; // Mark as loaded
             loadingImages--; // Decrement loading images count
             updateStats(); // Update loading images count
         };
-    
+
         return container;
     }
+
+    
     
 
-    // Function to load a single page
-    function loadPage(pageNumber, pageUrl) {
-        if (loadingImages >= maxConcurrentLoads) {
-            return; // Exit if we're at max concurrent loads
-        }
-
-        loadingImages++;
-        updateStats(); // Update loading images count
-
-        fetch(pageUrl)
-            .then(response => response.text())
-            .then(html => {
-                const parser = new DOMParser();
-                const doc = parser.parseFromString(html, 'text/html');
-                const imgElement = doc.querySelector('#image-container > a > img');
-                const nextLink = doc.querySelector('#image-container > a').href;
-                const imgSrc = imgElement.getAttribute('data-src') || imgElement.src;
-
-                const pageContainer = createPageContainer(pageNumber, imgSrc);
-                imageStatus[pageNumber].loaded = true; // Mark as loaded
-
-                loadingImages--;
-                updateStats(); // Update loading images count
-
-                // Continue loading the next page if needed
-                if (pageNumber < totalPages && nextLink) {
-                    loadingQueue.push({ pageNumber: pageNumber + 1, pageUrl: nextLink });
-                    processQueue(); // Check the queue
-                } else {
-                    const exitButtonBottom = createExitButton();
-                    mangaContainer.appendChild(exitButtonBottom);
-                    exitButtonBottom.addEventListener('click', function() {
-                        window.location.reload();
-                    });
-                }
-            })
-            .catch(err => {
-                loadingImages--;
-                console.error(err);
-                updateStats(); // Update loading images count
-                handleFailedImage(pageNumber); // Handle failed image loading
-            });
+    // Function to load a single page// Efficient pre-fetching using a queue
+function loadPage(pageNumber, pageUrl) {
+    if (loadingImages >= maxConcurrentLoads) {
+        return; // Exit if we're at max concurrent loads
     }
+
+    loadingImages++;
+    updateStats(); // Update loading images count
+
+    fetch(pageUrl)
+        .then(response => response.text())
+        .then(html => {
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(html, 'text/html');
+            const imgElement = doc.querySelector('#image-container > a > img');
+            const nextLink = doc.querySelector('#image-container > a').href;
+            const imgSrc = imgElement.getAttribute('data-src') || imgElement.src;
+
+            const pageContainer = createPageContainer(pageNumber, imgSrc);
+            imageStatus[pageNumber].loaded = true; // Mark as loaded
+
+            loadingImages--;
+            updateStats(); // Update loading images count
+
+            // Pre-fetch the next page once the current one loads
+            if (pageNumber < totalPages && nextLink) {
+                loadingQueue.push({ pageNumber: pageNumber + 1, pageUrl: nextLink });
+                processQueue(); // Check the queue
+            }
+        })
+        .catch(err => {
+            loadingImages--;
+            console.error(err);
+            updateStats(); // Update loading images count
+            handleFailedImage(pageNumber); // Handle failed image loading
+        });
+}
 
     // Handle failed image loading attempts
     function handleFailedImage(pageNumber) {
@@ -397,56 +390,99 @@ function loadMangaImages() {
         }
     }
 
-    // Function to process the loading queue
-    function processQueue() {
-        while (loadingQueue.length > 0 && loadingImages < maxConcurrentLoads) {
-            const { pageNumber, pageUrl } = loadingQueue.shift(); // Get the next page to load
-            loadPage(pageNumber, pageUrl); // Load it
-        }
+// Process the loading queue
+function processQueue() {
+    while (loadingQueue.length > 0 && loadingImages < maxConcurrentLoads) {
+        const { pageNumber, pageUrl } = loadingQueue.shift(); // Get the next page to load
+        loadPage(pageNumber, pageUrl); // Load it
     }
-
-    const firstImageElement = document.querySelector('#image-container > a > img');
-    const firstImgSrc = firstImageElement.getAttribute('data-src') || firstImageElement.src;
-    createPageContainer(currentPage, firstImgSrc);
-
-    const firstImageLink = document.querySelector('#image-container > a').href;
-    loadingQueue.push({ pageNumber: currentPage + 1, pageUrl: firstImageLink }); // Add to queue
-    processQueue(); // Start processing the queue
-
-    exitButtonTop.addEventListener('click', function() {
-        window.location.reload();
-    });
 }
 
-// Modify the error handling function
-function addErrorHandlingToImage(image, imgSrc, pageNumber) {
-    image.onerror = function() {
-        console.warn(`Failed to load image: ${imgSrc} on page ${pageNumber}. Retrying...`);
-        handleFailedImage(pageNumber); // Call the handle failed image function
-    };
+const firstImageElement = document.querySelector('#image-container > a > img');
+const firstImgSrc = firstImageElement.getAttribute('data-src') || firstImageElement.src;
+createPageContainer(currentPage, firstImgSrc);
+
+const firstImageLink = document.querySelector('#image-container > a').href;
+loadingQueue.push({ pageNumber: currentPage + 1, pageUrl: firstImageLink }); // Add to queue
+processQueue(); // Start processing the queue
+
+// Observe all image containers for lazy loading
+observeAndPreloadImages(); // <-- Add this here to track and lazy-load images
+
+exitButtonTop.addEventListener('click', function() {
+    window.location.reload();
+});
 }
 
-
-    // Create an IntersectionObserver to prioritize loading images that are in or near the viewport
+// Pre-load next few images while user scrolls
+function observeAndPreloadImages() {
     const observer = new IntersectionObserver((entries) => {
         entries.forEach(entry => {
             if (entry.isIntersecting) {
                 const imgElement = entry.target.querySelector('img');
                 if (imgElement && imgElement.dataset.src) {
-                    imgElement.src = imgElement.dataset.src;
-                    observer.unobserve(entry.target);
+                    imgElement.src = imgElement.dataset.src; // Load the image
+                    observer.unobserve(entry.target); // Stop observing after loading
                 }
             }
         });
     }, {
-        rootMargin: '200px 0px',
+        rootMargin: '300px 0px', // Load images 300px before they appear
         threshold: 0.1
     });
 
-    // Use the observer when images are created
-    function observePageContainer(container) {
-        observer.observe(container);
-    }
+    // Observe each image container
+    const imageContainers = document.querySelectorAll('.manga-page-container');
+    imageContainers.forEach(container => observer.observe(container));
+}
+
+// Enhanced error handling with retries
+function addErrorHandlingToImage(image, imgSrc, pageNumber) {
+    image.onerror = function() {
+        console.warn(`Failed to load image: ${imgSrc} on page ${pageNumber}. Retrying...`);
+        
+        // Retry logic for failed images
+        if (!imageStatus[pageNumber].retryCount) {
+            imageStatus[pageNumber].retryCount = 0;
+        }
+
+        // Retry up to 5 times for failed images
+        if (imageStatus[pageNumber].retryCount < 5) {
+            imageStatus[pageNumber].retryCount++;
+            setTimeout(() => {
+                image.src = ''; // Clear the src to force reload
+                image.src = imgSrc; // Retry loading the image
+            }, 1000); // Delay before retrying
+        } else {
+            console.error(`Failed to load image on page ${pageNumber} after multiple attempts.`);
+            image.alt = `Failed to load page ${pageNumber}`; // Display error message after retries
+        }
+    };
+}
+
+
+
+    // Create an IntersectionObserver to prioritize loading images that are in or near the viewport
+// Create an IntersectionObserver to prioritize loading images that are in or near the viewport
+const observer = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+        if (entry.isIntersecting) {
+            const imgElement = entry.target.querySelector('img');
+            if (imgElement && imgElement.dataset.src) {
+                imgElement.src = imgElement.dataset.src; // Load the image when it enters the viewport
+                observer.unobserve(entry.target); // Stop observing after loading
+            }
+        }
+    });
+}, {
+    rootMargin: '200px 0px', // Adjust for preloading images slightly outside the viewport
+    threshold: 0.1 // Trigger loading when 10% of the image is in view
+});
+
+function observePageContainer(container) {
+    observer.observe(container); // Observe each page container for lazy loading
+}
+
     
     addCustomStyles();
 
