@@ -1,11 +1,13 @@
 // ==UserScript==
 // @name         Nhentai Manga Loader
 // @namespace    http://www.nhentai.net
-// @version      3.0
+// @version      3.1
 // @description  Loads nhentai manga chapters into one page in a long strip format with image scaling, click events, and a dark mode for reading.
 // @match        *://nhentai.net/g/*/*
 // @icon         https://clipground.com/images/nhentai-logo-5.png
-// @grant        none
+// @grant GM.getValue
+// @grant GM.setValue
+// @grant GM.deleteValue
 // @license      MIT
 // @noframes
 // ==/UserScript==
@@ -147,7 +149,7 @@
 // Declare reloadMode at the top level
 let reloadMode = false; // Flag to track reload mode
 
-function createStatsWindow() {
+async function createStatsWindow() {
     const statsWindow = document.createElement('div');
     statsWindow.className = 'ml-stats';
 
@@ -162,9 +164,12 @@ function createStatsWindow() {
     collapseButton.textContent = '>>';
     collapseButton.style.cursor = 'pointer';
     collapseButton.style.marginRight = '10px'; // Space between button and content
-    collapseButton.addEventListener('click', function() {
+    collapseButton.addEventListener('click', async function() {
         contentContainer.style.display = contentContainer.style.display === 'none' ? 'block' : 'none';
         collapseButton.textContent = contentContainer.style.display === 'none' ? '<<' : '>>';
+
+        // Save the collapse state
+        await GM.setValue('statsCollapsed', contentContainer.style.display === 'none');
     });
 
     const contentContainer = document.createElement('div');
@@ -175,14 +180,14 @@ function createStatsWindow() {
     statsText.textContent = `0/0 loaded`; // Initial stats
 
     const infoButton = document.createElement('i');
-    infoButton.className = 'fa fa-question-circle ml-button ml-info-button'; // Changed icon
+    infoButton.className = 'fa fa-question-circle ml-button ml-info-button';
     infoButton.title = 'See userscript information and help';
     infoButton.addEventListener('click', function() {
         alert('This userscript loads manga pages in a single view. Click on an image to toggle size.');
     });
 
     const moreStatsButton = document.createElement('i');
-    moreStatsButton.className = 'fa fa-chart-pie ml-button ml-more-stats-button'; // Changed icon
+    moreStatsButton.className = 'fa fa-chart-pie ml-button ml-more-stats-button';
     moreStatsButton.title = 'See detailed page stats';
     moreStatsButton.addEventListener('click', function() {
         const statsBox = document.querySelector('.ml-floating-msg');
@@ -190,11 +195,11 @@ function createStatsWindow() {
     });
 
     const refreshButton = document.createElement('i');
-    refreshButton.className = 'fa fa-sync-alt ml-button ml-manual-reload'; // Changed icon
+    refreshButton.className = 'fa fa-sync-alt ml-button ml-manual-reload';
     refreshButton.title = 'Click an image to reload it.';
     refreshButton.addEventListener('click', function() {
-        reloadMode = !reloadMode; // Toggle reload mode
-        refreshButton.style.color = reloadMode ? 'orange' : ''; // Change color to indicate state
+        reloadMode = !reloadMode;
+        refreshButton.style.color = reloadMode ? 'orange' : '';
         console.log(`Reload mode is now ${reloadMode ? 'enabled' : 'disabled'}.`);
     });
 
@@ -213,6 +218,13 @@ function createStatsWindow() {
     statsBox.style.display = 'none'; // Initially hidden
     statsWindow.appendChild(statsBox);
 
+    // Check and set initial collapse state
+    const collapsed = await GM.getValue('statsCollapsed', false);
+    if (collapsed) {
+        contentContainer.style.display = 'none';
+        collapseButton.textContent = '<<'; // Change to indicate expanded state
+    }
+
     // Add hover effect
     statsWindow.style.transition = 'opacity 0.3s';
     statsWindow.style.opacity = '0.6'; // Dimmed by default
@@ -227,6 +239,7 @@ function createStatsWindow() {
 
     document.body.appendChild(statsWindow);
 }
+
 
 
 // Add the click event to images
@@ -263,6 +276,7 @@ function addClickEventToImage(image) {
     // Load all manga images with page separators and scaling
     function loadMangaImages() {
         hideElements();
+        createStatsWindow(); // Create the stats window
 
         const mangaContainer = document.createElement('div');
         mangaContainer.id = 'manga-container';
@@ -374,7 +388,7 @@ function addClickEventToImage(image) {
     }
     
     addCustomStyles();
-    createStatsWindow(); // Create the stats window
+
 
     // Check if the image container has an image
     function isImageContainerVisible() {
