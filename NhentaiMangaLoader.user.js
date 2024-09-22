@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Nhentai Manga Loader
 // @namespace    http://www.nhentai.net
-// @version      3.1
+// @version      3.2
 // @description  Loads nhentai manga chapters into one page in a long strip format with image scaling, click events, and a dark mode for reading.
 // @match        *://nhentai.net/g/*/*
 // @icon         https://clipground.com/images/nhentai-logo-5.png
@@ -254,13 +254,6 @@ function addClickEventToImage(image) {
     });
 }
 
-    // Function to reload image on error
-    function addErrorHandlingToImage(image, imgSrc) {
-        image.onerror = function() {
-            console.warn(`Failed to load image: ${imgSrc}. Retrying...`);
-            image.src = imgSrc;
-        };
-    }
 
     // Function to hide specified elements
     function hideElements() {
@@ -273,98 +266,166 @@ function addClickEventToImage(image) {
         });
     }
 
-    // Load all manga images with page separators and scaling
-    function loadMangaImages() {
-        hideElements();
-        createStatsWindow(); // Create the stats window
+// Add this at the top level to track image loading status
+const imageStatus = []; // Array to track the status of each image
 
-        const mangaContainer = document.createElement('div');
-        mangaContainer.id = 'manga-container';
-        document.body.appendChild(mangaContainer);
+// Load all manga images with page separators and scaling
+function loadMangaImages() {
+    hideElements();
+    createStatsWindow(); // Create the stats window
 
-        const exitButtonTop = createExitButton();
-        mangaContainer.appendChild(exitButtonTop);
+    const mangaContainer = document.createElement('div');
+    mangaContainer.id = 'manga-container';
+    document.body.appendChild(mangaContainer);
 
-        totalPages = parseInt(document.querySelector('.num-pages').textContent.trim());
-        totalImages = totalPages; // Update total images for stats
-        const initialPage = parseInt(window.location.href.match(/\/g\/\d+\/(\d+)/)[1]);
-        let currentPage = initialPage;
+    const exitButtonTop = createExitButton();
+    mangaContainer.appendChild(exitButtonTop);
 
-        // Helper to create the page container with images
-        function createPageContainer(pageNumber, imgSrc) {
-            const container = document.createElement('div');
-            container.className = 'manga-page-container';
+    totalPages = parseInt(document.querySelector('.num-pages').textContent.trim());
+    totalImages = totalPages; // Update total images for stats
+    const initialPage = parseInt(window.location.href.match(/\/g\/\d+\/(\d+)/)[1]);
+    let currentPage = initialPage;
 
-            const img = document.createElement('img');
-            img.src = imgSrc;
-            img.alt = `Page ${pageNumber}`;
+    // Queue for tracking loading images
+    const loadingQueue = [];
+    const maxConcurrentLoads = 50; // Maximum number of concurrent image loads
 
-            addErrorHandlingToImage(img, imgSrc);
-            container.appendChild(img);
-
-            const counter = addPageCounter(pageNumber);
-            container.appendChild(counter);
-
-            addClickEventToImage(img);
-            mangaContainer.appendChild(container);
-
-            loadedPages++; // Increment loaded pages count
-            updateStats(); // Update stats display
-
-            observePageContainer(container);
-
-            return container;
-        }
-
-        // Function to load a single page
-        function loadPage(pageNumber, pageUrl) {
-            loadingImages++;
+    // Helper to create the page container with images
+    function createPageContainer(pageNumber, imgSrc) {
+        const container = document.createElement('div');
+        container.className = 'manga-page-container';
+    
+        // Create the placeholder image
+        const placeholder = document.createElement('img');
+        placeholder.src = 'path/to/placeholder.jpg'; // URL of your low-res or blurred placeholder
+        placeholder.alt = `Loading page ${pageNumber}`;
+        placeholder.className = 'placeholder-image'; // Optional: add CSS for styling
+    
+        // Create the actual image element
+        const img = document.createElement('img');
+        img.src = ''; // Start with empty src to avoid loading it immediately
+        img.dataset.src = imgSrc; // Store the actual src in data attribute
+        img.alt = `Page ${pageNumber}`;
+    
+        // Append the placeholder and the image
+        container.appendChild(placeholder);
+        container.appendChild(img);
+    
+        // Track the image status
+        imageStatus[pageNumber] = { src: imgSrc, loaded: false, attempts: 0 };
+    
+        // Error handling and event listeners
+        addErrorHandlingToImage(img, imgSrc, pageNumber);
+        addClickEventToImage(img);
+        mangaContainer.appendChild(container);
+    
+        loadedPages++; // Increment loaded pages count
+        updateStats(); // Update stats display
+    
+        observePageContainer(container); // Observe for lazy loading
+    
+        // Start loading the actual image
+        img.src = imgSrc; // Set the src to load the image
+    
+        // Replace the placeholder with the actual image on load
+        img.onload = () => {
+            placeholder.style.display = 'none'; // Hide placeholder
+            img.style.display = 'block'; // Show the actual image
+            imageStatus[pageNumber].loaded = true; // Mark as loaded
+            loadingImages--; // Decrement loading images count
             updateStats(); // Update loading images count
+        };
+    
+        return container;
+    }
+    
 
-            fetch(pageUrl)
-                .then(response => response.text())
-                .then(html => {
-                    const parser = new DOMParser();
-                    const doc = parser.parseFromString(html, 'text/html');
-                    const imgElement = doc.querySelector('#image-container > a > img');
-                    const nextLink = doc.querySelector('#image-container > a').href;
-                    const imgSrc = imgElement.getAttribute('data-src') || imgElement.src;
-
-                    const pageContainer = createPageContainer(pageNumber, imgSrc);
-
-                    loadingImages--;
-                    updateStats(); // Update loading images count
-
-                    // Continue loading the next page if needed
-                    if (pageNumber < totalPages && nextLink) {
-                        loadPage(pageNumber + 1, nextLink);
-                    } else {
-                        const exitButtonBottom = createExitButton();
-                        mangaContainer.appendChild(exitButtonBottom);
-
-                        exitButtonBottom.addEventListener('click', function() {
-                            window.location.reload();
-                        });
-                    }
-                })
-                .catch(err => {
-                    loadingImages--;
-                    console.error(err);
-                    updateStats(); // Update loading images count
-                });
+    // Function to load a single page
+    function loadPage(pageNumber, pageUrl) {
+        if (loadingImages >= maxConcurrentLoads) {
+            return; // Exit if we're at max concurrent loads
         }
 
-        const firstImageElement = document.querySelector('#image-container > a > img');
-        const firstImgSrc = firstImageElement.getAttribute('data-src') || firstImageElement.src;
-        createPageContainer(currentPage, firstImgSrc);
+        loadingImages++;
+        updateStats(); // Update loading images count
 
-        const firstImageLink = document.querySelector('#image-container > a').href;
-        loadPage(currentPage + 1, firstImageLink);
+        fetch(pageUrl)
+            .then(response => response.text())
+            .then(html => {
+                const parser = new DOMParser();
+                const doc = parser.parseFromString(html, 'text/html');
+                const imgElement = doc.querySelector('#image-container > a > img');
+                const nextLink = doc.querySelector('#image-container > a').href;
+                const imgSrc = imgElement.getAttribute('data-src') || imgElement.src;
 
-        exitButtonTop.addEventListener('click', function() {
-            window.location.reload();
-        });
+                const pageContainer = createPageContainer(pageNumber, imgSrc);
+                imageStatus[pageNumber].loaded = true; // Mark as loaded
+
+                loadingImages--;
+                updateStats(); // Update loading images count
+
+                // Continue loading the next page if needed
+                if (pageNumber < totalPages && nextLink) {
+                    loadingQueue.push({ pageNumber: pageNumber + 1, pageUrl: nextLink });
+                    processQueue(); // Check the queue
+                } else {
+                    const exitButtonBottom = createExitButton();
+                    mangaContainer.appendChild(exitButtonBottom);
+                    exitButtonBottom.addEventListener('click', function() {
+                        window.location.reload();
+                    });
+                }
+            })
+            .catch(err => {
+                loadingImages--;
+                console.error(err);
+                updateStats(); // Update loading images count
+                handleFailedImage(pageNumber); // Handle failed image loading
+            });
     }
+
+    // Handle failed image loading attempts
+    function handleFailedImage(pageNumber) {
+        if (imageStatus[pageNumber]) {
+            imageStatus[pageNumber].attempts++;
+            if (imageStatus[pageNumber].attempts <= 3) { // Retry up to 3 times
+                console.warn(`Retrying to load image for page ${pageNumber}...`);
+                loadPage(pageNumber, document.querySelector(`#image-container > a`).href); // Reattempt loading the same page
+            } else {
+                console.error(`Failed to load image for page ${pageNumber} after 3 attempts.`);
+            }
+        }
+    }
+
+    // Function to process the loading queue
+    function processQueue() {
+        while (loadingQueue.length > 0 && loadingImages < maxConcurrentLoads) {
+            const { pageNumber, pageUrl } = loadingQueue.shift(); // Get the next page to load
+            loadPage(pageNumber, pageUrl); // Load it
+        }
+    }
+
+    const firstImageElement = document.querySelector('#image-container > a > img');
+    const firstImgSrc = firstImageElement.getAttribute('data-src') || firstImageElement.src;
+    createPageContainer(currentPage, firstImgSrc);
+
+    const firstImageLink = document.querySelector('#image-container > a').href;
+    loadingQueue.push({ pageNumber: currentPage + 1, pageUrl: firstImageLink }); // Add to queue
+    processQueue(); // Start processing the queue
+
+    exitButtonTop.addEventListener('click', function() {
+        window.location.reload();
+    });
+}
+
+// Modify the error handling function
+function addErrorHandlingToImage(image, imgSrc, pageNumber) {
+    image.onerror = function() {
+        console.warn(`Failed to load image: ${imgSrc} on page ${pageNumber}. Retrying...`);
+        handleFailedImage(pageNumber); // Call the handle failed image function
+    };
+}
+
 
     // Create an IntersectionObserver to prioritize loading images that are in or near the viewport
     const observer = new IntersectionObserver((entries) => {
