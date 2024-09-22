@@ -290,7 +290,7 @@ function loadMangaImages() {
 
     // Queue for tracking loading images
     const loadingQueue = [];
-    const maxConcurrentLoads = 40; // Maximum number of concurrent image loads
+    const maxConcurrentLoads = /Mobi/.test(navigator.userAgent) ? 10 : 40; // Maximum number of concurrent image loads
 
     // Helper to create the page container with images
     function createPageContainer(pageNumber, imgSrc) {
