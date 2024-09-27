@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Nhentai Manga Loader
 // @namespace    http://www.nhentai.net
-// @version      3.3.4
+// @version      3.4
 // @description  Loads nhentai manga chapters into one page in a long strip format with image scaling, click events, and a dark mode for reading.
 // @match        *://nhentai.net/g/*/*
 // @icon         https://clipground.com/images/nhentai-logo-5.png
@@ -345,22 +345,89 @@ function loadMangaImages() {
         return container;
     }
 
-    
-    
+// Function to extract manga ID from URL
+function extractMangaId(url) {
+    const match = url.match(/\/g\/(\d+)/);
+    return match ? match[1] : null;
+}
+
+// Function to save image data to local storage
+function saveImageToCache(pageNumber, imgSrc, nextLink, mangaId) {
+    const cacheKey = `imagePage_${mangaId}_${pageNumber}`;
+    const cacheData = { imgSrc, nextLink, timestamp: Date.now(), mangaId };
+    localStorage.setItem(cacheKey, JSON.stringify(cacheData));
+}
+
+// Function to get image data from local storage
+function getImageFromCache(pageNumber, mangaId) {
+    const cacheKey = `imagePage_${mangaId}_${pageNumber}`;
+    const cachedData = localStorage.getItem(cacheKey);
+    if (cachedData) {
+        return JSON.parse(cachedData);
+    }
+    return null;
+}
 
 // Add a delay function
 function delay(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-// Load a single page with error handling and retry logic
+// Track if the app is online or offline
+let isOnline = navigator.onLine;
+
+// Add event listeners to detect connection state changes
+window.addEventListener('offline', () => {
+    console.warn('You are offline. Pausing image loading.');
+    isOnline = false;
+});
+
+window.addEventListener('online', () => {
+    console.log('Back online. Resuming image loading.');
+    isOnline = true;
+    if (loadingQueue.length > 0) {
+        processQueue(); // Resume processing the queue
+    } else {
+        // If queue is empty, manually trigger the next page load
+        loadNextBatchOfImages(); // Load the next set of images if queue is empty
+    }
+});
+
+// Load a single page with error handling, retry logic, and caching
 async function loadPage(pageNumber, pageUrl, retryCount = 0) {
-    if (loadingImages >= maxConcurrentLoads) {
-        return; // Exit if we're at max concurrent loads
+    if (loadingImages >= maxConcurrentLoads || !isOnline) {
+        return; // Exit if we're at max concurrent loads or offline
     }
 
     loadingImages++;
     updateStats(); // Update loading images count
+
+    const mangaId = extractMangaId(pageUrl);
+    if (!mangaId) {
+        console.error(`Could not extract manga ID from URL: ${pageUrl}`);
+        loadingImages--;
+        updateStats();
+        handleFailedImage(pageNumber);
+        return;
+    }
+
+    // Check cache first
+    const cachedImage = getImageFromCache(pageNumber, mangaId);
+    if (cachedImage && cachedImage.mangaId === mangaId) {
+        console.log(`Loading page ${pageNumber} from cache for manga ${mangaId}`);
+        const pageContainer = createPageContainer(pageNumber, cachedImage.imgSrc);
+        imageStatus[pageNumber].loaded = true; // Mark as loaded
+
+        loadingImages--;
+        updateStats(); // Update loading images count
+
+        // Pre-fetch the next page if it's not the last page
+        if (pageNumber < totalPages && cachedImage.nextLink) {
+            loadingQueue.push({ pageNumber: pageNumber + 1, pageUrl: cachedImage.nextLink });
+            processQueue(); // Check the queue
+        }
+        return;
+    }
 
     try {
         const response = await fetch(pageUrl);
@@ -387,6 +454,9 @@ async function loadPage(pageNumber, pageUrl, retryCount = 0) {
         const nextLink = doc.querySelector('#image-container > a').href;
         const imgSrc = imgElement.getAttribute('data-src') || imgElement.src;
 
+        // Save to cache
+        saveImageToCache(pageNumber, imgSrc, nextLink, mangaId);
+
         const pageContainer = createPageContainer(pageNumber, imgSrc);
         imageStatus[pageNumber].loaded = true; // Mark as loaded
 
@@ -406,18 +476,33 @@ async function loadPage(pageNumber, pageUrl, retryCount = 0) {
     }
 }
 
-// In your processing queue, ensure a delay between requests
+// In your processing queue, ensure a delay ONLY after 429 status
 async function processQueue() {
-    while (loadingQueue.length > 0 && loadingImages < maxConcurrentLoads) {
+    while (loadingQueue.length > 0 && loadingImages < maxConcurrentLoads && isOnline) {
         const { pageNumber, pageUrl } = loadingQueue.shift(); // Get the next page to load
-        await delay(500); // Add a delay between loading each page
         loadPage(pageNumber, pageUrl); // Load it
+    }
+}
+
+// Manually trigger the next batch of images if needed
+function loadNextBatchOfImages() {
+    if (loadingQueue.length === 0 && isOnline) {
+        const nextPageNumber = getNextPageNumber(); // Logic to get the next page number
+        const nextPageUrl = getNextPageUrl(nextPageNumber); // Logic to get the next page URL
+
+        if (nextPageUrl) {
+            loadingQueue.push({ pageNumber: nextPageNumber, pageUrl: nextPageUrl });
+            processQueue(); // Resume loading
+        }
     }
 }
 
 // Configuration for retry logic
 const maxRetries = 5; // Maximum number of retries for rate limit
-const retryDelay = 5000; // Delay in milliseconds before retrying
+const retryDelay = 5000; // Delay in milliseconds before retrying only on 429 status
+
+
+
 
 
     // Handle failed image loading attempts
