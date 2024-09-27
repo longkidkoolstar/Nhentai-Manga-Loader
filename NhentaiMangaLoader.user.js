@@ -348,8 +348,13 @@ function loadMangaImages() {
     
     
 
-    // Function to load a single page// Efficient pre-fetching using a queue
-function loadPage(pageNumber, pageUrl) {
+// Add a delay function
+function delay(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+// Load a single page with error handling and retry logic
+async function loadPage(pageNumber, pageUrl, retryCount = 0) {
     if (loadingImages >= maxConcurrentLoads) {
         return; // Exit if we're at max concurrent loads
     }
@@ -357,34 +362,63 @@ function loadPage(pageNumber, pageUrl) {
     loadingImages++;
     updateStats(); // Update loading images count
 
-    fetch(pageUrl)
-        .then(response => response.text())
-        .then(html => {
-            const parser = new DOMParser();
-            const doc = parser.parseFromString(html, 'text/html');
-            const imgElement = doc.querySelector('#image-container > a > img');
-            const nextLink = doc.querySelector('#image-container > a').href;
-            const imgSrc = imgElement.getAttribute('data-src') || imgElement.src;
+    try {
+        const response = await fetch(pageUrl);
 
-            const pageContainer = createPageContainer(pageNumber, imgSrc);
-            imageStatus[pageNumber].loaded = true; // Mark as loaded
-
-            loadingImages--;
-            updateStats(); // Update loading images count
-
-            // Pre-fetch the next page once the current one loads
-            if (pageNumber < totalPages && nextLink) {
-                loadingQueue.push({ pageNumber: pageNumber + 1, pageUrl: nextLink });
-                processQueue(); // Check the queue
+        if (response.status === 429) {
+            if (retryCount < maxRetries) {
+                console.warn(`Rate limit exceeded for page ${pageNumber}. Retrying in ${retryDelay} ms...`);
+                await delay(retryDelay); // Wait before retrying
+                loadPage(pageNumber, pageUrl, retryCount + 1); // Retry loading the same page
+                return;
+            } else {
+                console.error(`Failed to load page ${pageNumber} after ${maxRetries} attempts.`);
+                loadingImages--;
+                updateStats(); // Update loading images count
+                handleFailedImage(pageNumber); // Handle failed image loading
+                return;
             }
-        })
-        .catch(err => {
-            loadingImages--;
-            console.error(err);
-            updateStats(); // Update loading images count
-            handleFailedImage(pageNumber); // Handle failed image loading
-        });
+        }
+
+        const html = await response.text();
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(html, 'text/html');
+        const imgElement = doc.querySelector('#image-container > a > img');
+        const nextLink = doc.querySelector('#image-container > a').href;
+        const imgSrc = imgElement.getAttribute('data-src') || imgElement.src;
+
+        const pageContainer = createPageContainer(pageNumber, imgSrc);
+        imageStatus[pageNumber].loaded = true; // Mark as loaded
+
+        loadingImages--;
+        updateStats(); // Update loading images count
+
+        // Pre-fetch the next page once the current one loads
+        if (pageNumber < totalPages && nextLink) {
+            loadingQueue.push({ pageNumber: pageNumber + 1, pageUrl: nextLink });
+            processQueue(); // Check the queue
+        }
+    } catch (err) {
+        loadingImages--;
+        console.error(err);
+        updateStats(); // Update loading images count
+        handleFailedImage(pageNumber); // Handle failed image loading
+    }
 }
+
+// In your processing queue, ensure a delay between requests
+async function processQueue() {
+    while (loadingQueue.length > 0 && loadingImages < maxConcurrentLoads) {
+        const { pageNumber, pageUrl } = loadingQueue.shift(); // Get the next page to load
+        await delay(500); // Add a delay between loading each page
+        loadPage(pageNumber, pageUrl); // Load it
+    }
+}
+
+// Configuration for retry logic
+const maxRetries = 5; // Maximum number of retries for rate limit
+const retryDelay = 5000; // Delay in milliseconds before retrying
+
 
     // Handle failed image loading attempts
     function handleFailedImage(pageNumber) {
@@ -399,13 +433,7 @@ function loadPage(pageNumber, pageUrl) {
         }
     }
 
-// Process the loading queue
-function processQueue() {
-    while (loadingQueue.length > 0 && loadingImages < maxConcurrentLoads) {
-        const { pageNumber, pageUrl } = loadingQueue.shift(); // Get the next page to load
-        loadPage(pageNumber, pageUrl); // Load it
-    }
-}
+
 
 const firstImageElement = document.querySelector('#image-container > a > img');
 const firstImgSrc = firstImageElement.getAttribute('data-src') || firstImageElement.src;
