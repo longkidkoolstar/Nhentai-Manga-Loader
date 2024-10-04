@@ -114,6 +114,99 @@
         document.head.appendChild(style);
     }
 
+//------------------------------------------------------------------------------**Remove this when transfer over to Nhentai+**------------------------------------------------------------------------------
+
+let isPopupVisible = false; // Flag to track if the popup is visible
+
+function showPopupForSavedPosition(message, onConfirm, options = {}) {
+    const existingPopup = document.getElementById('popup');
+    if (existingPopup) {
+        document.body.removeChild(existingPopup);
+    }
+
+    const popup = document.createElement('div');
+    popup.id = 'popup';
+    popup.innerHTML = `
+        <div class="popup-content" role="alert">
+            <p>${message}</p>
+            <button class="confirm-btn">${options.confirmText || 'Yes'}</button>
+            <button class="cancel-btn">${options.cancelText || 'No'}</button>
+        </div>
+    `;
+    document.body.appendChild(popup);
+
+    // Set the popup visibility flag
+    isPopupVisible = true; 
+
+    // Add CSS styling for the popup
+    const style = document.createElement('style');
+    style.textContent = `
+        #popup {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0, 0, 0, 0.9);
+            color: #fff;
+            border-radius: 5px;
+            z-index: 9999;
+            padding: 15px;
+            max-width: 300px;
+            text-align: center;
+        }
+        .popup-content {
+            position: relative;
+            padding: 10px;
+        }
+        .confirm-btn,
+        .cancel-btn {
+            margin-top: 10px;
+            background: none;
+            border: none;
+            color: #fff;
+            font-size: 18px;
+            cursor: pointer;
+            transition: color 0.3s, transform 0.3s;
+            margin: 0 5px; /* Space between buttons */
+        }
+        .confirm-btn:hover,
+        .cancel-btn:hover {
+            color: #ff0000; /* Change color on hover */
+            transform: scale(1.1); /* Slightly enlarge on hover */
+        }
+    `;
+    document.head.appendChild(style);
+
+    // Handle confirmation button click
+    document.querySelector('.confirm-btn').addEventListener('click', function() {
+        document.body.removeChild(popup);
+        document.head.removeChild(style);
+        isPopupVisible = false; // Reset the flag when popup is closed
+        if (onConfirm) onConfirm(); // Call the onConfirm callback
+    });
+
+    // Handle cancel button click
+    document.querySelector('.cancel-btn').addEventListener('click', function() {
+        document.body.removeChild(popup);
+        document.head.removeChild(style);
+        isPopupVisible = false; // Reset the flag when popup is closed
+    });
+
+    // Auto-close feature based on options
+    const duration = options.duration || 10000; // Default to 10 seconds if not specified
+    setTimeout(() => {
+        if (document.body.contains(popup)) {
+            document.body.removeChild(popup);
+            document.head.removeChild(style);
+            isPopupVisible = false; // Reset the flag when auto-closed
+        }
+    }, duration); // Use the specified duration
+}
+
+
+
+//------------------------------------------------------------------------------**Remove this when transfer over to Nhentai+**------------------------------------------------------------------------------
+
 // Function to extract manga ID from URL
 function extractMangaId(url) {
     const match = url.match(/\/g\/(\d+)/);
@@ -311,16 +404,19 @@ function getCurrentVisiblePage() {
 
 
 
-// Add a scroll event listener to the manga container// Add a scroll event listener to the manga container
+// Add a scroll event listener to the manga container// 
+
 function addScrollListener(mangaContainer, mangaId) {
     mangaContainer.addEventListener('scroll', async () => {
-        const currentPage = getCurrentVisiblePage();
-        console.log(`Current visible page: ${currentPage}`);
-
-        // Save the current position if it's different from the last saved
-        await saveCurrentPosition(mangaId, currentPage);
+        // Only save the current page if the popup is not visible
+        if (!isPopupVisible) {
+            const currentPage = getCurrentVisiblePage();
+            console.log(`Current visible page: ${currentPage}`);
+            await saveCurrentPosition(mangaId, currentPage);
+        }
     });
 }
+
 
 
 // Load all manga images with page separators and scaling
@@ -373,7 +469,9 @@ function loadMangaImages(mangaId) {
         exitButton.addEventListener('click', () => {
             const mangaId = extractMangaId(window.location.href);
             const currentPage = getCurrentPage(); // You need to implement getCurrentPage() function
-            saveCurrentPosition(mangaId, currentPage);
+            if (!isPopupVisible) { 
+                saveCurrentPosition(mangaId, currentPage);
+            }
             window.location.reload();
         })
     }
@@ -603,7 +701,9 @@ function observeAndPreloadImages() {
             // Save the current position
             const mangaId = extractMangaId(window.location.href);
             const currentPage = getCurrentPage(entry); // Get the current page number
-            saveCurrentPosition(mangaId, currentPage);
+            if (!isPopupVisible) {
+                saveCurrentPosition(mangaId, currentPage);
+            }
           }
         }
       });
@@ -854,10 +954,20 @@ setInterval(manageStorage, 24 * 60 * 60 * 1000);  // Runs every 24 hours
         loadMangaButton.addEventListener('click', async function() {
             const mangaId = extractMangaId(window.location.href);
             if (mangaId) {
-                await loadSavedPosition(mangaId);
+                loadMangaImages(); // Load the manga images first
+        
+                // Show a popup asking the user if they want to load the saved position
+                showPopupForSavedPosition("Do you want to load your last saved position?", async () => {
+                    await loadSavedPosition(mangaId);
+                }, { 
+                    confirmText: 'Yes', // Custom confirmation text
+                    cancelText: 'No', // Custom cancellation text
+                    duration: 10000 // Optional duration for auto-close
+                });
             }
-            loadMangaImages();
             loadMangaButton.remove();
         });
+        
+        
     }
 })();
