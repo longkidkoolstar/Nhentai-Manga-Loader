@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Nhentai Manga Loader
 // @namespace    http://www.nhentai.net
-// @version      4.2
+// @version      4.2.1
 // @description  Loads nhentai manga chapters into one page in a long strip format with image scaling, click events, and a dark mode for reading.
 // @match        *://nhentai.net/g/*/*
 // @icon         https://clipground.com/images/nhentai-logo-5.png
@@ -434,7 +434,7 @@ function getCurrentVisiblePage() {
         }
     }
 
-    console.log(`Current visible page determined: ${visiblePage}`);
+    //console.log(`Current visible page determined: ${visiblePage}`);
     return visiblePage; // Return the visible page number
 }
 
@@ -448,7 +448,7 @@ function addScrollListener(mangaContainer, mangaId) {
         // Only save the current page if the popup is not visible
         if (!isPopupVisible || freshloadedcache) {
             const currentPage = getCurrentVisiblePage();
-            console.log(`Current visible page: ${currentPage}`);
+            //console.log(`Current visible page: ${currentPage}`);
             await saveCurrentPosition(mangaId, currentPage);
         }
     });
@@ -771,22 +771,32 @@ function observeAndPreloadImages() {
     imageContainers.forEach((container) => observer.observe(container));
   }
 
-// Enhanced error handling with retries
+// Enhanced error handling with retries and alternative subdomains
 function addErrorHandlingToImage(image, imgSrc, pageNumber) {
+    const subdomains = ['i5', 'i7', 'i3']; // Add the alternative subdomains here
+    let currentSubdomainIndex = 0;
+
     image.onerror = function() {
         console.warn(`Failed to load image: ${imgSrc} on page ${pageNumber}. Retrying...`);
         
-        // Retry logic for failed images
+        // Retry logic with subdomain cycling
         if (!imageStatus[pageNumber].retryCount) {
             imageStatus[pageNumber].retryCount = 0;
         }
 
-        // Retry up to 5 times for failed images
-        if (imageStatus[pageNumber].retryCount < 5) {
+        if (imageStatus[pageNumber].retryCount < subdomains.length) {
             imageStatus[pageNumber].retryCount++;
+            
+            // Replace the subdomain in the image URL
+            const newSubdomain = subdomains[currentSubdomainIndex];
+            const newImgSrc = imgSrc.replace(/i\d/, newSubdomain);
+
+            currentSubdomainIndex = (currentSubdomainIndex + 1) % subdomains.length; // Cycle to next subdomain
+            console.log(`Retrying with new subdomain: ${newSubdomain} for page ${pageNumber}`);
+            
             setTimeout(() => {
                 image.src = ''; // Clear the src to force reload
-                image.src = imgSrc; // Retry loading the image
+                image.src = newImgSrc; // Retry with the new subdomain
             }, 1000); // Delay before retrying
         } else {
             console.error(`Failed to load image on page ${pageNumber} after multiple attempts.`);
@@ -794,6 +804,8 @@ function addErrorHandlingToImage(image, imgSrc, pageNumber) {
         }
     };
 }
+
+
 
 
 
@@ -985,12 +997,12 @@ async function checkRedirected() {
     if (wasRedirected) {
         const mangaId = extractMangaId(window.location.href);
         console.log(`Loading manga images for manga ID: ${mangaId}`); // Log the manga ID
+        loadMangaButton.remove(); // Remove the load managa button since we already did it button
         loadMangaImages(mangaId); // Call loadMangaImages after redirection
         await GM.setValue('redirected', false); // Reset the flag in storage
         console.log(`Reset redirected flag to false in storage.`); // Log confirmation of resetting the flag
     }
 }
-
 // Call the function every second
 setInterval(checkRedirected, 1000);
 
@@ -1096,12 +1108,12 @@ async function saveCurrentPosition(mangaId) {
     const currentPage = getCurrentVisiblePage(); // Get the current page number from the URL
 
     // Log the total pages for debugging
-    console.log(`Total pages loaded: ${totalPages}, trying to save position for page: ${currentPage}`);
+    //console.log(`Total pages loaded: ${totalPages}, trying to save position for page: ${currentPage}`);
 
     // Always save the position
     if (!isRestoringPosition) { // Only save if we are not restoring
         await storeData(mangaId, currentPage);
-        console.log(`Position saved: Manga ID: ${mangaId}, Page: ${currentPage}`);
+        //console.log(`Position saved: Manga ID: ${mangaId}, Page: ${currentPage}`);
     }
 }
 
@@ -1119,49 +1131,47 @@ setInterval(manageStorage, 24 * 60 * 60 * 1000);  // Runs every 24 hours
         return imageContainer && imageContainer.querySelector('img');
     }
 
-    if (isImageContainerVisible()) {
-        const loadMangaButton = document.createElement('button');
-        loadMangaButton.textContent = 'Load Manga';
-        loadMangaButton.className = 'load-manga-btn';
-        loadMangaButton.style.position = 'fixed';
-        loadMangaButton.style.bottom = '0';
-        loadMangaButton.style.right = '0';
-        loadMangaButton.style.padding = '5px';
-        loadMangaButton.style.margin = '0 10px 10px 0';
-        loadMangaButton.style.zIndex = '9999999999';
-        document.body.appendChild(loadMangaButton);
+    window.loadMangaButton = document.createElement('button');
+    loadMangaButton.textContent = 'Load Manga';
+    loadMangaButton.className = 'load-manga-btn';
+    loadMangaButton.style.position = 'fixed';
+    loadMangaButton.style.bottom = '0';
+    loadMangaButton.style.right = '0';
+    loadMangaButton.style.padding = '5px';
+    loadMangaButton.style.margin = '0 10px 10px 0';
+    loadMangaButton.style.zIndex = '9999999999';
+    document.body.appendChild(loadMangaButton);
 
-     loadMangaButton.addEventListener('click', async function() {
-       const mangaId = extractMangaId(window.location.href);
-       if (mangaId) {
-         loadMangaImages(); // Load the manga images first
+    loadMangaButton.addEventListener('click', async function() {
+      const mangaId = extractMangaId(window.location.href);
+      if (mangaId) {
+        loadMangaImages(); // Load the manga images first
      
-         // Check if there's a saved position for the manga
-         const savedPosition = await retrieveData(mangaId);
-         if (savedPosition) {
-           // Check if the saved position was deleted
-           const savedPage = savedPosition.pageNum;
-           if (savedPage && (savedPage === totalPages || savedPage + 1 === totalPages)) {
-             await GM.deleteValue(mangaId);
-             console.log(`Saved position deleted for ${mangaId} since it's equal to total pages.`);
-           } else {
-             // Show a popup asking the user if they want to load the saved position
-             showPopupForSavedPosition("Do you want to load your last saved position?", async () => {
-               await loadSavedPosition(mangaId);
-             }, { 
-               confirmText: 'Yes', // Custom confirmation text
-               cancelText: 'No', // Custom cancellation text
-               duration: 10000 // Optional duration for auto-close
-             });
-           }
-         } else {
-           // No saved position, proceed without prompting
-           console.log('No saved position found for manga ID:', mangaId);
-         }
-       }
-       loadMangaButton.remove();
-     });
+        // Check if there's a saved position for the manga
+        const savedPosition = await retrieveData(mangaId);
+        if (savedPosition) {
+          // Check if the saved position was deleted
+          const savedPage = savedPosition.pageNum;
+          if (savedPage && (savedPage === totalPages || savedPage + 1 === totalPages)) {
+            await GM.deleteValue(mangaId);
+            console.log(`Saved position deleted for ${mangaId} since it's equal to total pages.`);
+          } else {
+            // Show a popup asking the user if they want to load the saved position
+            showPopupForSavedPosition("Do you want to load your last saved position?", async () => {
+              await loadSavedPosition(mangaId);
+            }, { 
+              confirmText: 'Yes', // Custom confirmation text
+              cancelText: 'No', // Custom cancellation text
+              duration: 10000 // Optional duration for auto-close
+            });
+          }
+        } else {
+          // No saved position, proceed without prompting
+          console.log('No saved position found for manga ID:', mangaId);
+        }
+      }
+      loadMangaButton.remove();
+    });
         
         
-    }
-})();
+    })();
