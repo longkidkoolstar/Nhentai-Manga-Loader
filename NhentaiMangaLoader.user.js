@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Nhentai Manga Loader
 // @namespace    http://www.nhentai.net
-// @version      4.3.4
+// @version      4.3.5
 // @description  Loads nhentai manga chapters into one page in a long strip format with image scaling, click events, and a dark mode for reading.
 // @match        *://nhentai.net/g/*/*
 // @icon         https://clipground.com/images/nhentai-logo-5.png
@@ -1103,47 +1103,42 @@ async function saveCurrentPosition(mangaId) {
     loadMangaButton.style.margin = '0 10px 10px 0';
     loadMangaButton.style.zIndex = '9999999999';
     
-    // Function to check for the existence of the "find similar" buttons
-    function checkForFindSimilarButton() {
-        const findSimilarButtons = document.querySelectorAll('.find-similar');
+    const buttonsDiv = document.querySelectorAll('.buttons');
     
-        if (findSimilarButtons.length > 0) {
-            //console.log('Find Similar button already exists.');
-        } else if (!document.body.contains(loadMangaButton)) { 
-            document.body.appendChild(loadMangaButton);
+    if (buttonsDiv.length > 0) {
+        //console.log('Buttons div already exists.');
+    } else if (!document.body.contains(loadMangaButton)) { 
+        document.body.appendChild(loadMangaButton);
     
-            loadMangaButton.addEventListener('click', async function() {
-                const mangaId = extractMangaId(window.location.href);
-                if (mangaId) {
-                    loadMangaImages(); // Load the manga images first
+        loadMangaButton.addEventListener('click', async function() {
+            const mangaId = extractMangaId(window.location.href);
+            if (mangaId) {
+                loadMangaImages(); // Load the manga images first
                  
-                    // Check if there's a saved position for the manga
-                    const savedPosition = await retrieveData(mangaId);
-                    if (savedPosition) {
-                      const savedPage = savedPosition.pageNum;
-                      if (savedPage && (savedPage === totalPages || savedPage + 1 === totalPages)) {
-                        await GM.deleteValue(mangaId);
-                        console.log(`Saved position deleted for ${mangaId} since it's equal to total pages.`);
-                      } else {
-                        showPopupForSavedPosition("Do you want to load your last saved position?", async () => {
-                          await loadSavedPosition(mangaId);
-                        }, { 
-                          confirmText: 'Yes', 
-                          cancelText: 'No', 
-                          duration: 10000 
-                        });
-                      }
-                    } else {
-                      console.log('No saved position found for manga ID:', mangaId);
-                    }
+                // Check if there's a saved position for the manga
+                const savedPosition = await retrieveData(mangaId);
+                if (savedPosition) {
+                  const savedPage = savedPosition.pageNum;
+                  if (savedPage && (savedPage === totalPages || savedPage + 1 === totalPages)) {
+                    await GM.deleteValue(mangaId);
+                    console.log(`Saved position deleted for ${mangaId} since it's equal to total pages.`);
+                  } else {
+                    showPopupForSavedPosition("Do you want to load your last saved position?", async () => {
+                      await loadSavedPosition(mangaId);
+                    }, { 
+                      confirmText: 'Yes', 
+                      cancelText: 'No', 
+                      duration: 10000 
+                    });
+                  }
+                } else {
+                  console.log('No saved position found for manga ID:', mangaId);
                 }
-                loadMangaButton.remove();
-            });
-        }
+            }
+            loadMangaButton.remove();
+        });
     }
-    checkForFindSimilarButton();
-    // Set an interval to check every second (1000 milliseconds)
-    setInterval(checkForFindSimilarButton, 100);
+    
     
         
     })();
