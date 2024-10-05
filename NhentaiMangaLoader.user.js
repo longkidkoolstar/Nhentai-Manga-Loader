@@ -929,35 +929,99 @@ function waitForPageContainers(savedPageWithOffset) {
     });
 }
 
-async function scrollToSavedPage(pageContainers, savedPage) {
-    const currentPage = getCurrentPageFromURL(); // Get current page number from URL
-    const savedPageIndex = savedPage - currentPage - 1; // Calculate the effective saved page index with -1 offset
+// Queue for specific page loading
+const specificPageQueue = [];
 
-    // Log the indices for debugging
-    console.log(`Current page: ${currentPage}, Saved page: ${savedPage}, Adjusted index to scroll: ${savedPageIndex}`);
 
-    // Check if the calculated index is within bounds
+// Function to load a specific page
+async function loadSpecificPage(pageNumber) {
+    const mangaId = extractMangaId(window.location.href);
+    const pageUrl = `/g/${mangaId}/${pageNumber}/`;
+
+    // Check if the page is already loaded
+    const loadedPageContainers = document.querySelectorAll('.manga-page-container');
+    if (loadedPageContainers.length >= pageNumber) {
+        console.log(`Page ${pageNumber} is already loaded.`);
+        return; // Exit if the page is already loaded
+    }
+
+    console.log(`Requesting to load page ${pageNumber}. Adding to specific loading queue.`);
+    specificPageQueue.push({ pageNumber, pageUrl });
+    processSpecificPageQueue(); // Start processing the specific page queue
+}
+
+
+// Function to process the specific page loading queue
+async function processSpecificPageQueue(maxConcurrentLoads) {
+    while (specificPageQueue.length > 0 && loadingImages < maxConcurrentLoads) {
+        const { pageNumber, pageUrl } = specificPageQueue.shift(); // Get the next page to load
+        console.log(`Loading page ${pageNumber} from specific queue with URL: ${pageUrl}`);
+        await loadPage(pageNumber, pageUrl); // Load the page
+    }
+}
+
+
+async function scrollToSavedPage(pageContainers, savedPage, savedImgSrc) {
+    const currentPage = getCurrentPageFromURL();
+    const savedPageIndex = savedPage - currentPage - 1;
+
+    console.log(`Current page: ${currentPage}, Adjusted index for saved page: ${savedPageIndex}`);
+    
+    // Check if the adjusted index is out of bounds
     if (savedPageIndex < 0 || savedPageIndex >= pageContainers.length) {
         console.warn(`Adjusted saved page index ${savedPageIndex} is out of bounds.`);
-        // Prioritize loading the missing page
         console.log(`Page ${savedPage} is not loaded yet. Prioritizing its load.`);
-        prioritizeLoadingPage(savedPage); // Function to prioritize loading
+        loadSpecificPage(savedPage); // Load the specific page
         return;
     }
 
-    const savedPageElement = pageContainers[savedPageIndex]; // Get the container for the saved page
-
-    // Check if the image for the saved page is loaded
+    const savedPageElement = pageContainers[savedPageIndex];
     const img = savedPageElement.querySelector('img');
+
     if (img && img.complete) {
         console.log(`Image for page ${savedPage} loaded. Scrolling to it.`);
         savedPageElement.scrollIntoView({ behavior: 'smooth' });
-        isRestoringPosition = false; // Reset flag after scrolling
     } else {
-        console.log(`Image for page ${savedPage} not loaded yet. Prioritizing its load.`);
-        prioritizeLoadingPage(savedPage); // Function to prioritize loading the saved page
+        console.log(`Image for page ${savedPage} not loaded yet. Requesting to load this specific page.`);
+        loadSpecificPage(savedPage);
     }
 }
+
+
+
+// Function to wait for the specific page to load using MutationObserver
+function waitForPageToLoad(savedPage) {
+    const observer = new MutationObserver((mutations, obs) => {
+        const pageContainers = document.querySelectorAll('.manga-page-container');
+        const savedPageIndex = savedPage - getCurrentPageFromURL() - 1;
+
+        if (savedPageIndex >= 0 && savedPageIndex < pageContainers.length) {
+            const savedPageElement = pageContainers[savedPageIndex];
+            const img = savedPageElement.querySelector('img');
+
+            // Check if the image is now loaded
+            if (img && img.complete) {
+                console.log(`Image for page ${savedPage} is now loaded. Scrolling to it.`);
+                savedPageElement.scrollIntoView({ behavior: 'smooth' });
+                isRestoringPosition = false; // Reset flag after scrolling
+                obs.disconnect(); // Stop observing once the page is loaded
+            }
+        }
+    });
+
+    // Observe changes in the DOM
+    observer.observe(document.body, {
+        childList: true,
+        subtree: true
+    });
+
+    // Optionally, you can set a timeout to stop observing after a certain time
+    setTimeout(() => {
+        obs.disconnect(); // Stop observing if the page does not load within the time limit
+        console.warn(`Timed out waiting for page ${savedPage} to load.`);
+    }, 5000); // 10 seconds timeout (adjust as needed)
+}
+
 
 // Function to prioritize loading a specific page
 function prioritizeLoadingPage(savedPage) {
