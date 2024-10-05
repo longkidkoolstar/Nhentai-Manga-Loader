@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Nhentai Manga Loader
 // @namespace    http://www.nhentai.net
-// @version      4.3
+// @version      4.3.1
 // @description  Loads nhentai manga chapters into one page in a long strip format with image scaling, click events, and a dark mode for reading.
 // @match        *://nhentai.net/g/*/*
 // @icon         https://clipground.com/images/nhentai-logo-5.png
@@ -898,7 +898,7 @@ async function retrieveData(mangaId) {
 
 // Delete the least recently accessed data if the limit is reached
 async function manageStorage() {
-    const MAX_ENTRIES = 50;  // Limit to store 50 recent hentai
+    const MAX_ENTRIES = 52;  // Limit to store 50 recent hentai
     const keys = await GM.listValues();
     if (keys.length > MAX_ENTRIES) {
         const entries = [];
@@ -1032,7 +1032,7 @@ setInterval(checkRedirected, 1000);
 
 async function scrollToSavedPage(pageContainers, savedPage, savedImgSrc) {
     const currentPage = getCurrentPageFromURL(); // Get current page number from URL
-    const savedPageIndex = savedPage - currentPage - 1; // Calculate the effective saved page index
+    const savedPageIndex = savedPage - currentPage; // Calculate the effective saved page index
 
     console.log(`Current page: ${currentPage}, Adjusted index for saved page: ${savedPageIndex}`);
 
@@ -1054,55 +1054,6 @@ async function scrollToSavedPage(pageContainers, savedPage, savedImgSrc) {
     } else {
         console.log(`Image for page ${savedPage} not loaded yet. Redirecting to its URL.`);
         loadSpecificPage(savedPage); // Redirect to the specific page
-    }
-}
-
-
-
-
-// Function to wait for the specific page to load using MutationObserver
-function waitForPageToLoad(savedPage) {
-    const observer = new MutationObserver((mutations, obs) => {
-        const pageContainers = document.querySelectorAll('.manga-page-container');
-        const savedPageIndex = savedPage - getCurrentPageFromURL() - 1;
-
-        if (savedPageIndex >= 0 && savedPageIndex < pageContainers.length) {
-            const savedPageElement = pageContainers[savedPageIndex];
-            const img = savedPageElement.querySelector('img');
-
-            // Check if the image is now loaded
-            if (img && img.complete) {
-                console.log(`Image for page ${savedPage} is now loaded. Scrolling to it.`);
-                savedPageElement.scrollIntoView({ behavior: 'smooth' });
-                isRestoringPosition = false; // Reset flag after scrolling
-                obs.disconnect(); // Stop observing once the page is loaded
-            }
-        }
-    });
-
-    // Observe changes in the DOM
-    observer.observe(document.body, {
-        childList: true,
-        subtree: true
-    });
-
-    // Optionally, you can set a timeout to stop observing after a certain time
-    setTimeout(() => {
-        obs.disconnect(); // Stop observing if the page does not load within the time limit
-        console.warn(`Timed out waiting for page ${savedPage} to load.`);
-    }, 5000); // 10 seconds timeout (adjust as needed)
-}
-
-
-// Function to prioritize loading a specific page
-function prioritizeLoadingPage(savedPage) {
-    const nextPageUrl = getNextPageUrl(savedPage); // Get the URL for the saved page
-    if (nextPageUrl) {
-        // Push the saved page to the front of the loading queue
-        loadingQueue.unshift({ pageNumber: savedPage, pageUrl: nextPageUrl });
-        processQueue(); // Start processing the queue to load the saved page
-    } else {
-        console.error(`No URL found for page ${savedPage}.`);
     }
 }
 
@@ -1138,18 +1089,9 @@ async function saveCurrentPosition(mangaId) {
 }
 
 
-
-
-
 // Periodically clean up storage
-setInterval(manageStorage, 24 * 60 * 60 * 1000);  // Runs every 24 hours
+    manageStorage();
 
-
-    // Check if the image container has an image
-    function isImageContainerVisible() {
-        const imageContainer = document.querySelector('#image-container');
-        return imageContainer && imageContainer.querySelector('img');
-    }
 
     window.loadMangaButton = document.createElement('button');
     loadMangaButton.textContent = 'Load Manga';
@@ -1160,6 +1102,11 @@ setInterval(manageStorage, 24 * 60 * 60 * 1000);  // Runs every 24 hours
     loadMangaButton.style.padding = '5px';
     loadMangaButton.style.margin = '0 10px 10px 0';
     loadMangaButton.style.zIndex = '9999999999';
+
+    const findSimilarButtons = document.querySelectorAll('.find-similar');
+    if (findSimilarButtons.length > 0) {
+        console.log('Find Similar button already exists.');
+    } else {
     document.body.appendChild(loadMangaButton);
 
     loadMangaButton.addEventListener('click', async function() {
@@ -1192,6 +1139,6 @@ setInterval(manageStorage, 24 * 60 * 60 * 1000);  // Runs every 24 hours
       }
       loadMangaButton.remove();
     });
-        
+}
         
     })();
