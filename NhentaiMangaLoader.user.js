@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Nhentai Manga Loader
 // @namespace    http://www.nhentai.net
-// @version      4.1
+// @version      4.2
 // @description  Loads nhentai manga chapters into one page in a long strip format with image scaling, click events, and a dark mode for reading.
 // @match        *://nhentai.net/g/*/*
 // @icon         https://clipground.com/images/nhentai-logo-5.png
@@ -19,6 +19,12 @@
     let totalPages = 0; // Track total pages
     let loadingImages = 0; // Track loading images
     let totalImages = 0; // Track total images
+    (async () => {
+        const value = await GM.getValue('redirected');
+        if (value === undefined) {
+            await GM.setValue('redirected', false); // Flag to track if the page has been redirected
+        }
+    })();
 
     // Helper to create custom style sheets for elements
     function addCustomStyles() {
@@ -388,28 +394,50 @@ const imageStatus = []; // Array to track the status of each image
 
 function getCurrentVisiblePage() {
     const pageContainers = document.querySelectorAll('.manga-page-container');
-    let visiblePage = 0; // Default to the first page
+    let visiblePage = 0; // Default to no visible page
     const totalPages = pageContainers.length; // Get total number of pages
 
+    // Check if the containers exist
+    if (totalPages === 0) {
+        console.warn('No page containers found.');
+        return visiblePage; // Return 0 if no pages are loaded
+    }
+
+    // Check for visible pages based on the <img> elements
     pageContainers.forEach((container, index) => {
-        const rect = container.getBoundingClientRect();
-        const pageHeight = rect.bottom - rect.top;
-        const visibleHeight = Math.min(window.innerHeight, rect.bottom) - Math.max(0, rect.top);
-        const visiblePercentage = (visibleHeight / pageHeight) * 100;
+        const img = container.querySelector('img'); // Get the image within the container
+        if (img && img.alt) {
+            const pageNumber = parseInt(img.alt.replace('Page ', ''), 10); // Extract page number from alt attribute
+            const rect = img.getBoundingClientRect();
+            const pageHeight = rect.bottom - rect.top;
+            const visibleHeight = Math.min(window.innerHeight, rect.bottom) - Math.max(0, rect.top);
+            const visiblePercentage = (visibleHeight / pageHeight) * 100;
 
-        // If the page is more than 50% visible, mark it as the current page
-        if (visiblePercentage >= 50) {
-            visiblePage = index + 1; // Convert to 1-based index
-        }
+            // If the page is more than 50% visible, mark it as the current page
+            if (visiblePercentage >= 50) {
+                visiblePage = pageNumber; // Set visiblePage based on the page number from the img
+            }
 
-        // Special case: If the last page is partially visible, save it
-        if (index + 1 === totalPages && visiblePercentage >= 10) {
-            visiblePage = totalPages; // Consider the last page as visible if it's more than 10% visible
+            // Special case: If the last page is partially visible, save it
+            if (index + 1 === totalPages && visiblePercentage >= 10) {
+                visiblePage = totalPages; // Consider the last page as visible if it's more than 10% visible
+            }
         }
     });
 
+    // If visiblePage is still 0, we can check the current URL as a fallback
+    if (visiblePage === 0) {
+        // Fallback: Parse current page number from URL if no visible page found
+        const currentPageMatch = window.location.pathname.match(/\/g\/\d+\/(\d+)/);
+        if (currentPageMatch) {
+            visiblePage = parseInt(currentPageMatch[1], 10); // Set visiblePage based on URL
+        }
+    }
+
+    console.log(`Current visible page determined: ${visiblePage}`);
     return visiblePage; // Return the visible page number
 }
+
 
 
 
@@ -875,12 +903,12 @@ async function loadSavedPosition(mangaId) {
     const savedData = await retrieveData(mangaId);
     console.log(`Saved data retrieved:`, savedData); // Log the retrieved data
 
-const savedPage = savedData.pageNum;
-if (savedPage && savedPage === totalPages) {
-  await GM.deleteValue(mangaId);
-  console.log(`Saved position deleted for ${mangaId} since it's equal to total pages.`);
-  return;
-}
+    const savedPage = savedData.pageNum;
+    if (savedPage && savedPage === totalPages) {
+        await GM.deleteValue(mangaId);
+        console.log(`Saved position deleted for ${mangaId} since it's equal to total pages.`);
+        return;
+    }
 
     if (savedData) {
         const savedPage = savedData.pageNum;
@@ -910,6 +938,8 @@ if (savedPage && savedPage === totalPages) {
     } else {
         console.log(`No saved position found for ${mangaId}.`);
     }
+
+    isRestoringPosition = false; // Reset the flag after restoring the position
 }
 
 function waitForPageContainers(savedPageWithOffset) {
@@ -933,59 +963,68 @@ function waitForPageContainers(savedPageWithOffset) {
 const specificPageQueue = [];
 
 
-// Function to load a specific page
+
+// Function to load a specific page by redirecting to its URL
 async function loadSpecificPage(pageNumber) {
-    const mangaId = extractMangaId(window.location.href);
-    const pageUrl = `/g/${mangaId}/${pageNumber}/`;
+    const mangaId = extractMangaId(window.location.href); // Extract manga ID from current URL
+    const pageUrl = `https://nhentai.net/g/${mangaId}/${pageNumber}/`; // Construct the URL for the specific page
 
-    // Check if the page is already loaded
-    const loadedPageContainers = document.querySelectorAll('.manga-page-container');
-    if (loadedPageContainers.length >= pageNumber) {
-        console.log(`Page ${pageNumber} is already loaded.`);
-        return; // Exit if the page is already loaded
-    }
+    console.log(`Redirecting to page ${pageNumber} at URL: ${pageUrl}`);
+    
+    await GM.setValue('redirected', true); // Save the redirected state in storage
+    console.log(`Set redirected flag to true in storage.`); // Log confirmation of setting the flag
 
-    console.log(`Requesting to load page ${pageNumber}. Adding to specific loading queue.`);
-    specificPageQueue.push({ pageNumber, pageUrl });
-    processSpecificPageQueue(); // Start processing the specific page queue
+    window.location.href = pageUrl; // Redirect to the specific page URL
 }
 
+// Function to check if the page is redirected and load manga images
+async function checkRedirected() {
+    const wasRedirected = await GM.getValue('redirected', false); // Retrieve the redirected state
+    //console.log(`Retrieved redirected flag: ${wasRedirected}`); // Log the retrieved flag value
 
-// Function to process the specific page loading queue
-async function processSpecificPageQueue(maxConcurrentLoads) {
-    while (specificPageQueue.length > 0 && loadingImages < maxConcurrentLoads) {
-        const { pageNumber, pageUrl } = specificPageQueue.shift(); // Get the next page to load
-        console.log(`Loading page ${pageNumber} from specific queue with URL: ${pageUrl}`);
-        await loadPage(pageNumber, pageUrl); // Load the page
+    if (wasRedirected) {
+        const mangaId = extractMangaId(window.location.href);
+        console.log(`Loading manga images for manga ID: ${mangaId}`); // Log the manga ID
+        loadMangaImages(mangaId); // Call loadMangaImages after redirection
+        await GM.setValue('redirected', false); // Reset the flag in storage
+        console.log(`Reset redirected flag to false in storage.`); // Log confirmation of resetting the flag
     }
 }
+
+// Call the function every second
+setInterval(checkRedirected, 1000);
+
+
+
 
 
 async function scrollToSavedPage(pageContainers, savedPage, savedImgSrc) {
-    const currentPage = getCurrentPageFromURL();
-    const savedPageIndex = savedPage - currentPage - 1;
+    const currentPage = getCurrentPageFromURL(); // Get current page number from URL
+    const savedPageIndex = savedPage - currentPage - 1; // Calculate the effective saved page index
 
     console.log(`Current page: ${currentPage}, Adjusted index for saved page: ${savedPageIndex}`);
-    
+
     // Check if the adjusted index is out of bounds
     if (savedPageIndex < 0 || savedPageIndex >= pageContainers.length) {
         console.warn(`Adjusted saved page index ${savedPageIndex} is out of bounds.`);
-        console.log(`Page ${savedPage} is not loaded yet. Prioritizing its load.`);
-        loadSpecificPage(savedPage); // Load the specific page
-        return;
+        console.log(`Page ${savedPage} is not loaded yet. Redirecting to its URL.`);
+        loadSpecificPage(savedPage); // Redirect to the specific page
+        return; // Exit early
     }
 
-    const savedPageElement = pageContainers[savedPageIndex];
+    const savedPageElement = pageContainers[savedPageIndex]; // Get the container for the saved page
     const img = savedPageElement.querySelector('img');
 
+    // If the image is loaded
     if (img && img.complete) {
         console.log(`Image for page ${savedPage} loaded. Scrolling to it.`);
         savedPageElement.scrollIntoView({ behavior: 'smooth' });
     } else {
-        console.log(`Image for page ${savedPage} not loaded yet. Requesting to load this specific page.`);
-        loadSpecificPage(savedPage);
+        console.log(`Image for page ${savedPage} not loaded yet. Redirecting to its URL.`);
+        loadSpecificPage(savedPage); // Redirect to the specific page
     }
 }
+
 
 
 
@@ -1051,33 +1090,22 @@ function getNextPageUrl(pageNumber) {
 
 
 
-// Save the current position, but only if we are not restoring the saved position
-async function saveCurrentPosition(mangaId, currentPage) {
+// Save the current position without checking for visibility// Save the current position based on the current page
+async function saveCurrentPosition(mangaId) {
     const totalPages = document.querySelectorAll('.manga-page-container').length;
+    const currentPage = getCurrentVisiblePage(); // Get the current page number from the URL
 
-    // Check if the current page is actually visible in the viewport
-    const pageContainer = document.querySelector(`.manga-page-container:nth-child(${currentPage})`);
-    const rect = pageContainer.getBoundingClientRect();
-    const tolerance = 50; // adjust this value as needed
-    const isVisible = rect.top < window.innerHeight + tolerance && rect.bottom > -tolerance;
+    // Log the total pages for debugging
+    console.log(`Total pages loaded: ${totalPages}, trying to save position for page: ${currentPage}`);
 
-    // Only save the position if the page is visible
-    if (!isVisible) {
-        console.log(`Page ${currentPage} is not visible, skipping save.`);
-        return; // Exit the function without saving the position
-    }
-
-    // If the current page is the second-to-last page, force-save the last page
-    if (currentPage === totalPages - 1) {
-        console.log(`You are on the second-to-last page. Saving the last page as the current position.`);
-        currentPage = totalPages; // Hardcode it to save the last page
-    }
-
+    // Always save the position
     if (!isRestoringPosition) { // Only save if we are not restoring
         await storeData(mangaId, currentPage);
         console.log(`Position saved: Manga ID: ${mangaId}, Page: ${currentPage}`);
     }
 }
+
+
 
 
 
@@ -1113,7 +1141,7 @@ setInterval(manageStorage, 24 * 60 * 60 * 1000);  // Runs every 24 hours
          if (savedPosition) {
            // Check if the saved position was deleted
            const savedPage = savedPosition.pageNum;
-           if (savedPage && savedPage === totalPages) {
+           if (savedPage && (savedPage === totalPages || savedPage + 1 === totalPages)) {
              await GM.deleteValue(mangaId);
              console.log(`Saved position deleted for ${mangaId} since it's equal to total pages.`);
            } else {
