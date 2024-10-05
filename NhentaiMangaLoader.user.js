@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Nhentai Manga Loader
 // @namespace    http://www.nhentai.net
-// @version      4.3.2
+// @version      4.3.3
 // @description  Loads nhentai manga chapters into one page in a long strip format with image scaling, click events, and a dark mode for reading.
 // @match        *://nhentai.net/g/*/*
 // @icon         https://clipground.com/images/nhentai-logo-5.png
@@ -1092,8 +1092,14 @@ async function saveCurrentPosition(mangaId) {
 // Periodically clean up storage
     manageStorage();
 
-
+    const findSimilarButtons = document.querySelectorAll('.find-similar');
+   
+    if (findSimilarButtons.length > 0) {
+        console.log('Find Similar button already exists.');
+        return;
+    } else {
     window.loadMangaButton = document.createElement('button');
+    }
     loadMangaButton.textContent = 'Load Manga';
     loadMangaButton.className = 'load-manga-btn';
     loadMangaButton.style.position = 'fixed';
@@ -1103,7 +1109,7 @@ async function saveCurrentPosition(mangaId) {
     loadMangaButton.style.margin = '0 10px 10px 0';
     loadMangaButton.style.zIndex = '9999999999';
 
-    const findSimilarButtons = document.querySelectorAll('.find-similar');
+
     if (findSimilarButtons.length > 0) {
         console.log('Find Similar button already exists.');
         return;
