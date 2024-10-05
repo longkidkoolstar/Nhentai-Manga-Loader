@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Nhentai Manga Loader
 // @namespace    http://www.nhentai.net
-// @version      4.2.1
+// @version      4.3
 // @description  Loads nhentai manga chapters into one page in a long strip format with image scaling, click events, and a dark mode for reading.
 // @match        *://nhentai.net/g/*/*
 // @icon         https://clipground.com/images/nhentai-logo-5.png
@@ -322,10 +322,29 @@ async function createStatsWindow() {
         console.log(`Reload mode is now ${reloadMode ? 'enabled' : 'disabled'}.`);
     });
 
+// Add the mini exit button for refreshing the page
+const miniExitButton = document.createElement('button');
+miniExitButton.innerHTML = '<i class="fas fa-sign-out-alt"></i>';  // Font Awesome icon for sign out
+miniExitButton.title = 'Exit the Manga Loader';
+miniExitButton.style.marginLeft = '10px'; // Space between other buttons
+miniExitButton.style.backgroundColor = '#e74c3c';  // Red color for the button
+miniExitButton.style.color = '#fff';
+miniExitButton.style.border = 'none';
+miniExitButton.style.padding = '2px 5px';
+miniExitButton.style.borderRadius = '5px';
+miniExitButton.style.cursor = 'pointer';
+
+// Refresh the page when the button is clicked
+miniExitButton.addEventListener('click', function() {
+    window.location.reload();  // Refresh the page
+});
+
+    // Append all elements to the stats content container
     contentContainer.appendChild(statsText);
     contentContainer.appendChild(infoButton);
     contentContainer.appendChild(moreStatsButton);
     contentContainer.appendChild(refreshButton);
+    contentContainer.appendChild(miniExitButton);  // Add mini exit button to the content
 
     statsWrapper.appendChild(collapseButton);
     statsWrapper.appendChild(contentContainer);
@@ -358,6 +377,7 @@ async function createStatsWindow() {
 
     document.body.appendChild(statsWindow);
 }
+ 
 
 
 
@@ -997,7 +1017,7 @@ async function checkRedirected() {
     if (wasRedirected) {
         const mangaId = extractMangaId(window.location.href);
         console.log(`Loading manga images for manga ID: ${mangaId}`); // Log the manga ID
-        loadMangaButton.remove(); // Remove the load managa button since we already did it button
+        loadMangaButton.remove(); // Remove the load manga button since we already did it button
         loadMangaImages(mangaId); // Call loadMangaImages after redirection
         await GM.setValue('redirected', false); // Reset the flag in storage
         console.log(`Reset redirected flag to false in storage.`); // Log confirmation of resetting the flag
