@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Nhentai Manga Loader
 // @namespace    http://www.nhentai.net
-// @version      4.3.5
+// @version      4.3.6
 // @description  Loads nhentai manga chapters into one page in a long strip format with image scaling, click events, and a dark mode for reading.
 // @match        *://nhentai.net/g/*/*
 // @icon         https://clipground.com/images/nhentai-logo-5.png
@@ -19,6 +19,7 @@
     let totalPages = 0; // Track total pages
     let loadingImages = 0; // Track loading images
     let totalImages = 0; // Track total images
+    let freshloadedcache = false;
     (async () => {
         const value = await GM.getValue('redirected');
         if (value === undefined) {
@@ -299,22 +300,25 @@ async function createStatsWindow() {
     statsText.textContent = `0/0 loaded`; // Initial stats
 
     const infoButton = document.createElement('i');
-    infoButton.className = 'fa fa-question-circle ml-button ml-info-button';
+    infoButton.innerHTML = '<i class="fas fa-question-circle"></i>';
     infoButton.title = 'See userscript information and help';
+    infoButton.style.marginLeft = '5px';
+    infoButton.style.marginRight = '5px'; // Add space to the right
     infoButton.addEventListener('click', function() {
         alert('This userscript loads manga pages in a single view. Click on an image to toggle size.');
     });
-
+    
     const moreStatsButton = document.createElement('i');
-    moreStatsButton.className = 'fa fa-chart-pie ml-button ml-more-stats-button';
+    moreStatsButton.innerHTML = '<i class="fas fa-chart-pie"></i>';
     moreStatsButton.title = 'See detailed page stats';
+    moreStatsButton.style.marginRight = '5px'; // Add space to the right
     moreStatsButton.addEventListener('click', function() {
         const statsBox = document.querySelector('.ml-floating-msg');
         statsBox.style.display = statsBox.style.display === 'block' ? 'none' : 'block';
     });
-
+    
     const refreshButton = document.createElement('i');
-    refreshButton.className = 'fa fa-sync-alt ml-button ml-manual-reload';
+    refreshButton.innerHTML = '<i class="fas fa-sync-alt"></i>';
     refreshButton.title = 'Click an image to reload it.';
     refreshButton.addEventListener('click', function() {
         reloadMode = !reloadMode;
@@ -563,30 +567,10 @@ function loadMangaImages(mangaId) {
     }
 
 
-let freshloadedcache = false;
 
-// Function to save image data to local storage
-function saveImageToCache(pageNumber, imgSrc, nextLink, mangaId) {
-    const cacheKey = `imagePage_${mangaId}_${pageNumber}`;
-    const cacheData = { imgSrc, nextLink, timestamp: Date.now(), mangaId };
-    localStorage.setItem(cacheKey, JSON.stringify(cacheData));
-}
 
-// Function to get image data from local storage
-function getImageFromCache(pageNumber, mangaId) {
-   // console.log("freshloadedcache", freshloadedcache);
-    freshloadedcache = true;
-    setInterval(() => {
-        //console.log("freshloadedcache", freshloadedcache);
-        freshloadedcache = false;
-    }, 3000)
-    const cacheKey = `imagePage_${mangaId}_${pageNumber}`;
-    const cachedData = localStorage.getItem(cacheKey);
-    if (cachedData) {
-        return JSON.parse(cachedData);
-    }
-    return null;
-}
+
+
 
 // Add a delay function
 function delay(ms) {
@@ -791,15 +775,53 @@ function observeAndPreloadImages() {
     imageContainers.forEach((container) => observer.observe(container));
   }
 
-// Enhanced error handling with retries and alternative subdomains
-function addErrorHandlingToImage(image, imgSrc, pageNumber) {
+// Function to get image data from local storage
+function getImageFromCache(pageNumber, mangaId) {
+    // console.log("freshloadedcache", freshloadedcache);
+     freshloadedcache = true;
+     setInterval(() => {
+         //console.log("freshloadedcache", freshloadedcache);
+         freshloadedcache = false;
+     }, 3000)
+     const cacheKey = `imagePage_${mangaId}_${pageNumber}`;
+     const cachedData = localStorage.getItem(cacheKey);
+     if (cachedData) {
+         return JSON.parse(cachedData);
+     }
+     return null;
+ }
+
+// Function to save image data to local storage
+function saveImageToCache(pageNumber, imgSrc, nextLink, mangaId) {
+    const cacheKey = `imagePage_${mangaId}_${pageNumber}`;
+    const cacheData = { imgSrc, nextLink, timestamp: Date.now(), mangaId };
+    localStorage.setItem(cacheKey, JSON.stringify(cacheData));
+}
+
+
+  function addErrorHandlingToImage(image, imgSrc, pageNumber) {
     const subdomains = ['i5', 'i7', 'i3']; // Add the alternative subdomains here
     let currentSubdomainIndex = 0;
+
+    function updateImageSource(newSrc) {
+        image.src = newSrc;
+        image.dataset.src = newSrc; // Update data-src attribute
+        updateImageCache(newSrc);
+    }
+
+    function updateImageCache(newSrc) {
+        const mangaId = extractMangaId(window.location.href);
+        const cachedData = getImageFromCache(pageNumber, mangaId);
+        if (cachedData) {
+            cachedData.imgSrc = newSrc;
+            saveImageToCache(pageNumber, newSrc, cachedData.nextLink, mangaId);
+            console.log(`Updated cache for page ${pageNumber} with new URL: ${newSrc}`);
+        }
+    }
 
     image.onerror = function() {
         console.warn(`Failed to load image: ${imgSrc} on page ${pageNumber}. Retrying...`);
         
-        // Retry logic with subdomain cycling
         if (!imageStatus[pageNumber].retryCount) {
             imageStatus[pageNumber].retryCount = 0;
         }
@@ -807,26 +829,48 @@ function addErrorHandlingToImage(image, imgSrc, pageNumber) {
         if (imageStatus[pageNumber].retryCount < subdomains.length) {
             imageStatus[pageNumber].retryCount++;
             
-            // Replace the subdomain in the image URL
             const newSubdomain = subdomains[currentSubdomainIndex];
             const newImgSrc = imgSrc.replace(/i\d/, newSubdomain);
 
-            currentSubdomainIndex = (currentSubdomainIndex + 1) % subdomains.length; // Cycle to next subdomain
+            currentSubdomainIndex = (currentSubdomainIndex + 1) % subdomains.length;
             console.log(`Retrying with new subdomain: ${newSubdomain} for page ${pageNumber}`);
             
             setTimeout(() => {
-                image.src = ''; // Clear the src to force reload
-                image.src = newImgSrc; // Retry with the new subdomain
-            }, 1000); // Delay before retrying
+                updateImageSource(newImgSrc);
+                // Update the local storage cache for this page
+                const mangaId = extractMangaId(window.location.href);
+                const cachedData = getImageFromCache(pageNumber, mangaId);
+                if (cachedData) {
+                    saveImageToCache(pageNumber, newImgSrc, cachedData.nextLink, mangaId);
+                    console.log(`Updated local storage cache for page ${pageNumber} with new URL: ${newImgSrc}`);
+                }
+            }, 1000);
         } else {
             console.error(`Failed to load image on page ${pageNumber} after multiple attempts.`);
-            image.alt = `Failed to load page ${pageNumber}`; // Display error message after retries
+            image.alt = `Failed to load page ${pageNumber}`;
         }
+    };
+
+    // Update cache even if image loads successfully from cache
+    image.onload = function() {
+        updateImageCache(image.src);
     };
 }
 
+// Update createPageContainer function to use the new error handling
+function createPageContainer(pageNumber, imgSrc) {
+    const container = document.createElement('div');
+    container.className = 'manga-page-container';
 
+    const img = document.createElement('img');
+    img.src = imgSrc;
+    img.dataset.src = imgSrc; // Set data-src attribute
+    img.alt = `Page ${pageNumber}`;
 
+    const pageCounter = addPageCounter(pageNumber);
+
+    container.appendChild(img);
+}
 
 
     // Create an IntersectionObserver to prioritize loading images that are in or near the viewport
