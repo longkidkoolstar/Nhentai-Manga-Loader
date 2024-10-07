@@ -1,10 +1,10 @@
 // ==UserScript==
 // @name         Nhentai Manga Loader
 // @namespace    http://www.nhentai.net
-// @version      4.3.6
+// @version      4.4
 // @description  Loads nhentai manga chapters into one page in a long strip format with image scaling, click events, and a dark mode for reading.
 // @match        *://nhentai.net/g/*/*
-// @icon         https://clipground.com/images/nhentai-logo-5.png
+// @icon         https://i.imgur.com/S0x03gs.png
 // @grant        GM.getValue
 // @grant        GM.setValue
 // @grant        GM.deleteValue
@@ -437,8 +437,8 @@ function getCurrentVisiblePage() {
             const visibleHeight = Math.min(window.innerHeight, rect.bottom) - Math.max(0, rect.top);
             const visiblePercentage = (visibleHeight / pageHeight) * 100;
 
-            // If the page is more than 50% visible, mark it as the current page
-            if (visiblePercentage >= 50) {
+            // If the page is more than 70% visible, mark it as the current page
+            if (visiblePercentage >= 70) {
                 visiblePage = pageNumber; // Set visiblePage based on the page number from the img
             }
 
@@ -1091,15 +1091,39 @@ async function scrollToSavedPage(pageContainers, savedPage, savedImgSrc) {
     const savedPageElement = pageContainers[savedPageIndex]; // Get the container for the saved page
     const img = savedPageElement.querySelector('img');
 
-    // If the image is loaded
-    if (img && img.complete) {
-        console.log(`Image for page ${savedPage} loaded. Scrolling to it.`);
-        savedPageElement.scrollIntoView({ behavior: 'smooth' });
-    } else {
+
+        // If the image is loaded
+        if (img && img.complete) {
+            console.log(`Image for page ${savedPage} loaded. Moving to it.`);
+            if (/Mobi/i.test(navigator.userAgent)) {
+            const rect = savedPageElement.getBoundingClientRect();
+            window.scrollTo(rect.left, rect.top); // teleport on mobile
+            } else {
+            savedPageElement.scrollIntoView({ behavior: 'smooth' }); // scroll on desktop
+            }
+        } else {
         console.log(`Image for page ${savedPage} not loaded yet. Redirecting to its URL.`);
         loadSpecificPage(savedPage); // Redirect to the specific page
     }
 }
+
+//----------------------------------------------Make the second option later When in Main Script----------------------------------------------
+
+        // If the image is loaded
+        // if (img && img.complete) {
+        //     console.log(`Image for page ${savedPage} loaded. Scrolling to it.`);
+        //     savedPageElement.scrollIntoView({ behavior: 'smooth' });
+        // }
+
+
+        // If the image is loaded
+        // if (img && img.complete) {
+        //     console.log(`Image for page ${savedPage} loaded. Scrolling to it.`);
+        //     savedPageElement.scrollIntoView({ behavior: 'smooth' });
+        // }
+
+//----------------------------------------------Make the second option later When in Main Script----------------------------------------------    
+
 
 
 function getNextPageUrl(pageNumber) {
