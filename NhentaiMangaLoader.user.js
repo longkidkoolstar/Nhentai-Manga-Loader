@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Nhentai Manga Loader
 // @namespace    http://www.nhentai.net
-// @version      4.4
+// @version      4.5
 // @description  Loads nhentai manga chapters into one page in a long strip format with image scaling, click events, and a dark mode for reading.
 // @match        *://nhentai.net/g/*/*
 // @icon         https://i.imgur.com/S0x03gs.png
@@ -305,7 +305,7 @@ async function createStatsWindow() {
     infoButton.style.marginLeft = '5px';
     infoButton.style.marginRight = '5px'; // Add space to the right
     infoButton.addEventListener('click', function() {
-        alert('This userscript loads manga pages in a single view. Click on an image to toggle size.');
+        alert('This userscript loads manga pages in a single view. It is intended to be used for manga reading and saves your previous scroll position amongst other features.');
     });
     
     const moreStatsButton = document.createElement('i');
@@ -800,7 +800,7 @@ function saveImageToCache(pageNumber, imgSrc, nextLink, mangaId) {
 
 
   function addErrorHandlingToImage(image, imgSrc, pageNumber) {
-    const subdomains = ['i5', 'i7', 'i3']; // Add the alternative subdomains here
+    const subdomains = ['i1', 'i2', 'i3', 'i4', 'i5', 'i7']; // Add the alternative subdomains here
     let currentSubdomainIndex = 0;
 
     function updateImageSource(newSrc) {
@@ -855,21 +855,6 @@ function saveImageToCache(pageNumber, imgSrc, nextLink, mangaId) {
     image.onload = function() {
         updateImageCache(image.src);
     };
-}
-
-// Update createPageContainer function to use the new error handling
-function createPageContainer(pageNumber, imgSrc) {
-    const container = document.createElement('div');
-    container.className = 'manga-page-container';
-
-    const img = document.createElement('img');
-    img.src = imgSrc;
-    img.dataset.src = imgSrc; // Set data-src attribute
-    img.alt = `Page ${pageNumber}`;
-
-    const pageCounter = addPageCounter(pageNumber);
-
-    container.appendChild(img);
 }
 
 
