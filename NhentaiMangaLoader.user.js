@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Nhentai Manga Loader
 // @namespace    http://www.nhentai.net
-// @version      4.5
+// @version      4.5.1
 // @description  Loads nhentai manga chapters into one page in a long strip format with image scaling, click events, and a dark mode for reading.
 // @match        *://nhentai.net/g/*/*
 // @icon         https://i.imgur.com/S0x03gs.png
@@ -21,9 +21,9 @@
     let totalImages = 0; // Track total images
     let freshloadedcache = false;
     (async () => {
-        const value = await GM.getValue('redirected');
-        if (value === undefined) {
-            await GM.setValue('redirected', false); // Flag to track if the page has been redirected
+        const value = JSON.parse(localStorage.getItem('redirected'));
+        if (value === null) {
+            localStorage.setItem('redirected', JSON.stringify(false)); // Flag to track if the page has been redirected
         }
     })();
 
@@ -1032,7 +1032,7 @@ async function loadSpecificPage(pageNumber) {
 
     console.log(`Redirecting to page ${pageNumber} at URL: ${pageUrl}`);
     
-    await GM.setValue('redirected', true); // Save the redirected state in storage
+    localStorage.setItem('redirected', 'true'); // Save the redirected state in local storage
     console.log(`Set redirected flag to true in storage.`); // Log confirmation of setting the flag
 
     window.location.href = pageUrl; // Redirect to the specific page URL
@@ -1040,16 +1040,15 @@ async function loadSpecificPage(pageNumber) {
 
 // Function to check if the page is redirected and load manga images
 async function checkRedirected() {
-    const wasRedirected = await GM.getValue('redirected', false); // Retrieve the redirected state
-    //console.log(`Retrieved redirected flag: ${wasRedirected}`); // Log the retrieved flag value
+    const wasRedirected = JSON.parse(localStorage.getItem('redirected') || 'false'); // Retrieve the redirected state
 
     if (wasRedirected) {
         const mangaId = extractMangaId(window.location.href);
         console.log(`Loading manga images for manga ID: ${mangaId}`); // Log the manga ID
-        loadMangaButton.remove(); // Remove the load manga button since we already did it button
+        loadMangaButton.remove(); // Remove the load manga button since we already did it
         loadMangaImages(mangaId); // Call loadMangaImages after redirection
-        await GM.setValue('redirected', false); // Reset the flag in storage
         console.log(`Reset redirected flag to false in storage.`); // Log confirmation of resetting the flag
+        localStorage.setItem('redirected', JSON.stringify(false)); // Reset the flag in storage
     }
 }
 // Call the function every second
