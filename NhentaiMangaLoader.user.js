@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Nhentai Manga Loader
 // @namespace    http://www.nhentai.net
-// @version      4.5.2
+// @version      4.5.3
 // @description  Loads nhentai manga chapters into one page in a long strip format with image scaling, click events, and a dark mode for reading.
 // @match        *://nhentai.net/g/*/*
 // @icon         https://i.imgur.com/S0x03gs.png
@@ -392,8 +392,6 @@ function addClickEventToImage(image) {
             const imgSrc = image.dataset.src || image.src;
             image.src = ''; // Clear the src to trigger reload
             setTimeout(() => {
-                loadingImages++;
-                updateStats();
                 image.src = imgSrc; // Retry loading after clearing
             }, 100); // Short delay to ensure proper reload
         }
@@ -853,40 +851,36 @@ function saveImageToCache(pageNumber, imgSrc, nextLink, mangaId) {
         }
     };
 
-image.onload = function() {
-    updateImageCache(image.src);
-    loadingImages = Math.max(0, loadingImages - 1);
-    updateStats();
-    image.dataset.src = ''; // Clear data-src after successful load
-};
-
-    loadingImages++;
-    updateStats();
-    image.src = imgSrc;
+    // Update cache even if image loads successfully from cache
+    image.onload = function() {
+        updateImageCache(image.src);
+    };
 }
 
 
-
+    // Create an IntersectionObserver to prioritize loading images that are in or near the viewport
+// Create an IntersectionObserver to prioritize loading images that are in or near the viewport
 const observer = new IntersectionObserver((entries) => {
     entries.forEach(entry => {
         if (entry.isIntersecting) {
             const imgElement = entry.target.querySelector('img');
-            if (imgElement && imgElement.dataset.src && imgElement.dataset.src !== '' && imgElement.src !== imgElement.dataset.src) {
-                imgElement.src = imgElement.dataset.src;
-                observer.unobserve(entry.target);
+            if (imgElement && imgElement.dataset.src) {
+                imgElement.src = imgElement.dataset.src; // Load the image
+                observer.unobserve(entry.target); // Stop observing after loading
                 
                 // Save the current scroll position as soon as the image starts loading
                 const mangaId = extractMangaId(window.location.href);
-                const currentPage = getCurrentVisiblePage();
+                const currentPage = getCurrentVisiblePage(); // Get the current visible page number
                 if (!isPopupVisible || freshloadedcache) {
                     saveCurrentPosition(mangaId, currentPage);
                 }
             }
+            
         }
     });
 }, {
-    rootMargin: '200px 0px',
-    threshold: 0.1
+    rootMargin: '200px 0px', // Adjust for preloading images slightly outside the viewport
+    threshold: 0.1 // Trigger loading when 10% of the image is in view
 });
 
 function observePageContainer(container) {
