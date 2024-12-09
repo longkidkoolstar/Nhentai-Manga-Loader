@@ -1,13 +1,14 @@
 // ==UserScript==
 // @name         Nhentai Manga Loader
 // @namespace    http://www.nhentai.net
-// @version      4.5.3
+// @version      4.5.4
 // @description  Loads nhentai manga chapters into one page in a long strip format with image scaling, click events, and a dark mode for reading.
 // @match        *://nhentai.net/g/*/*
 // @icon         https://i.imgur.com/S0x03gs.png
 // @grant        GM.getValue
 // @grant        GM.setValue
 // @grant        GM.deleteValue
+// @grant        GM.listValues
 // @license      MIT
 // @noframes
 // ==/UserScript==
