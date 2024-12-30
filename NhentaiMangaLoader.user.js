@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Nhentai Manga Loader
 // @namespace    http://www.nhentai.net
-// @version      4.5.4
+// @version      5.0
 // @description  Loads nhentai manga chapters into one page in a long strip format with image scaling, click events, and a dark mode for reading.
 // @match        *://nhentai.net/g/*/*
 // @icon         https://i.imgur.com/S0x03gs.png
@@ -21,6 +21,46 @@
     let loadingImages = 0; // Track loading images
     let totalImages = 0; // Track total images
     let freshloadedcache = false;
+
+// Add this new function to handle jumping to pages
+function handleJumpToPage(input) {
+    const targetPage = parseInt(input.value);
+    if (isNaN(targetPage) || targetPage < 1 || targetPage > totalPages) {
+        alert(`Please enter a valid page number between 1 and ${totalPages}`);
+        return;
+    }
+
+    const pageContainers = document.querySelectorAll('.manga-page-container');
+    const targetContainer = Array.from(pageContainers).find(container => {
+        const img = container.querySelector('img');
+        return img && parseInt(img.alt.replace('Page ', '')) === targetPage;
+    });
+
+    if (targetContainer) {
+        // Page is loaded, scroll to it
+        if (/Mobi/i.test(navigator.userAgent)) {
+            // Get the offset from the top of the document instead of viewport
+            const offsetTop = targetContainer.offsetTop; // Add 5px to the top offset
+            // Scroll to the absolute position
+            window.scrollTo({
+                top: offsetTop,
+                left: 0,
+                behavior: 'instant' // Use 'instant' for consistent behavior
+            });
+        } else {
+            targetContainer.scrollIntoView({ behavior: 'smooth' });
+        }
+    } else {
+        // Page not loaded, redirect to it
+        const mangaId = extractMangaId(window.location.href);
+        loadSpecificPage(targetPage, mangaId);
+    }
+
+    // Clear the input after jumping
+    input.value = '';
+}
+
+
     (async () => {
         const value = JSON.parse(localStorage.getItem('redirected'));
         if (value === null) {
@@ -254,16 +294,16 @@ function getCurrentPage(entry) {
     // Update stats display
     function updateStats() {
         const statsContainer = document.querySelector('.ml-stats-pages');
-        if (statsContainer) {
-            statsContainer.textContent = `${loadedPages}/${totalPages} loaded`;
-        }
-        const loadingContainer = document.querySelector('.ml-loading-images');
-        if (loadingContainer) {
-            loadingContainer.textContent = `${loadingImages} images loading`;
-        }
-        const totalImagesContainer = document.querySelector('.ml-total-images');
-        if (totalImagesContainer) {
-            totalImagesContainer.textContent = `${totalImages} images in chapter`;
+        const statsBox = document.querySelector('.ml-floating-msg');
+        if (statsBox && !statsBox.querySelector('.jump-controls')) {
+            statsBox.innerHTML = `<strong>Stats:</strong>
+<span class="ml-loading-images">${loadingImages} images loading</span>
+<span class="ml-total-images">${totalImages} images in chapter</span>
+<span class="ml-loaded-pages">${loadedPages} pages parsed</span>`;
+
+if (statsContainer) {
+    statsContainer.textContent = `${loadedPages}/${totalPages} loaded`;
+}
         }
     }
 
@@ -312,12 +352,91 @@ async function createStatsWindow() {
     const moreStatsButton = document.createElement('i');
     moreStatsButton.innerHTML = '<i class="fas fa-chart-pie"></i>';
     moreStatsButton.title = 'See detailed page stats';
-    moreStatsButton.style.marginRight = '5px'; // Add space to the right
+    moreStatsButton.style.marginRight = '5px';
     moreStatsButton.addEventListener('click', function() {
         const statsBox = document.querySelector('.ml-floating-msg');
-        statsBox.style.display = statsBox.style.display === 'block' ? 'none' : 'block';
+        if (statsBox.style.display === 'none') {
+            statsBox.style.display = 'block';
+        }
+        // Always show stats content when stats button is clicked
+        statsBox.innerHTML = `<strong>Stats:</strong>
+<span class="ml-loading-images">${loadingImages} images loading</span>
+<span class="ml-total-images">${totalImages} images in chapter</span>
+<span class="ml-loaded-pages">${loadedPages} pages parsed</span>`;
     });
     
+    // Add new jump page button
+    const jumpPageButton = document.createElement('i');
+    jumpPageButton.innerHTML = '<i class="fas fa-search"></i>'; // Using search icon
+    jumpPageButton.title = 'Toggle jump to page';
+    jumpPageButton.style.marginRight = '5px';
+    jumpPageButton.addEventListener('click', function() {
+        const statsBox = document.querySelector('.ml-floating-msg');
+        if (statsBox.style.display === 'none') {
+            statsBox.style.display = 'block';
+        }
+        // Always show jump content when jump button is clicked
+        statsBox.innerHTML = `<strong>Jump to Page</strong>
+<div class="jump-controls" style="display: flex; gap: 5px; margin: 5px 0;">
+    <button class="jump-first">First</button>
+    <input type="number" class="jump-input" min="1" max="${totalPages}" placeholder="1-${totalPages}">
+    <button class="jump-last">Last</button>
+</div>
+<button class="jump-go">Go</button>
+`;
+
+        // Style the input and buttons
+        const jumpInput = statsBox.querySelector('.jump-input');
+        jumpInput.style.cssText = `
+            flex: 2;
+            width: 50px;
+            background: #444;
+            color: #fff;
+            border: 1px solid #555;
+            border-radius: 4px;
+            padding: 2px 4px;
+        `;
+
+        // Style all buttons consistently
+        const buttons = statsBox.querySelectorAll('button');
+        buttons.forEach(button => {
+            button.style.cssText = `
+                background-color: #444;
+                color: #fff;
+                border: 1px solid #555;
+                border-radius: 4px;
+                padding: 2px 6px;
+                cursor: pointer;
+                transition: background-color 0.2s;
+                width: 100%;
+                margin-top: 5px;
+                text-align: left;
+            `;
+        });
+
+        // Special styling for First/Last buttons
+        const firstLastButtons = statsBox.querySelectorAll('.jump-first, .jump-last');
+        firstLastButtons.forEach(button => {
+            button.style.cssText += `
+                flex: 1;
+                margin-top: 0;
+                width: auto;
+            `;
+        });
+
+        // Add event listeners
+        const jumpGo = statsBox.querySelector('.jump-go');
+        const jumpFirst = statsBox.querySelector('.jump-first');
+        const jumpLast = statsBox.querySelector('.jump-last');
+
+
+        jumpGo.addEventListener('click', () => handleJumpToPage(jumpInput));
+        jumpFirst.addEventListener('click', () => handleJumpToPage({ value: '1' }));
+        jumpLast.addEventListener('click', () => handleJumpToPage({ value: totalPages.toString() }));
+
+
+    });
+
     const refreshButton = document.createElement('i');
     refreshButton.innerHTML = '<i class="fas fa-sync-alt"></i>';
     refreshButton.title = 'Click an image to reload it.';
@@ -348,8 +467,9 @@ miniExitButton.addEventListener('click', function() {
     contentContainer.appendChild(statsText);
     contentContainer.appendChild(infoButton);
     contentContainer.appendChild(moreStatsButton);
+    contentContainer.appendChild(jumpPageButton); // Add the new button
     contentContainer.appendChild(refreshButton);
-    contentContainer.appendChild(miniExitButton);  // Add mini exit button to the content
+    contentContainer.appendChild(miniExitButton);
 
     statsWrapper.appendChild(collapseButton);
     statsWrapper.appendChild(contentContainer);
@@ -357,8 +477,15 @@ miniExitButton.addEventListener('click', function() {
 
     const statsBox = document.createElement('pre');
     statsBox.className = 'ml-box ml-floating-msg';
-    statsBox.innerHTML = `<strong>Stats:</strong><br><span class="ml-loading-images">0 images loading</span><br><span class="ml-total-images">536 images in chapter</span><br><span class="ml-loaded-pages">0 pages parsed</span>`;
     statsBox.style.display = 'none'; // Initially hidden
+
+    // Create the stats content
+    const statsContent = `<strong>Stats:</strong>
+<span class="ml-loading-images">0 images loading</span>
+<span class="ml-total-images">0 images in chapter</span>
+<span class="ml-loaded-pages">0 pages parsed</span>`;
+
+    statsBox.innerHTML = statsContent;
     statsWindow.appendChild(statsBox);
 
     // Check and set initial collapse state
@@ -1195,3 +1322,4 @@ async function saveCurrentPosition(mangaId) {
     
         
     })();
+
