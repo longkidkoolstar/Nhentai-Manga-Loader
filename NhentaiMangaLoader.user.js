@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Nhentai Manga Loader
 // @namespace    http://www.nhentai.net
-// @version      5.0
+// @version      5.0.1
 // @description  Loads nhentai manga chapters into one page in a long strip format with image scaling, click events, and a dark mode for reading.
 // @match        *://nhentai.net/g/*/*
 // @icon         https://i.imgur.com/S0x03gs.png
@@ -355,10 +355,15 @@ async function createStatsWindow() {
     moreStatsButton.style.marginRight = '5px';
     moreStatsButton.addEventListener('click', function() {
         const statsBox = document.querySelector('.ml-floating-msg');
-        if (statsBox.style.display === 'none') {
-            statsBox.style.display = 'block';
+        
+        // If stats box is showing stats content, close it
+        if (statsBox.style.display === 'block' && statsBox.querySelector('strong').textContent === 'Stats:') {
+            statsBox.style.display = 'none';
+            return;
         }
-        // Always show stats content when stats button is clicked
+        
+        // Show stats content
+        statsBox.style.display = 'block';
         statsBox.innerHTML = `<strong>Stats:</strong>
 <span class="ml-loading-images">${loadingImages} images loading</span>
 <span class="ml-total-images">${totalImages} images in chapter</span>
@@ -367,23 +372,27 @@ async function createStatsWindow() {
     
     // Add new jump page button
     const jumpPageButton = document.createElement('i');
-    jumpPageButton.innerHTML = '<i class="fas fa-search"></i>'; // Using search icon
+    jumpPageButton.innerHTML = '<i class="fas fa-search"></i>';
     jumpPageButton.title = 'Toggle jump to page';
     jumpPageButton.style.marginRight = '5px';
     jumpPageButton.addEventListener('click', function() {
         const statsBox = document.querySelector('.ml-floating-msg');
-        if (statsBox.style.display === 'none') {
-            statsBox.style.display = 'block';
+        
+        // If stats box is showing jump page content, close it
+        if (statsBox.style.display === 'block' && statsBox.querySelector('strong').textContent === 'Jump to Page') {
+            statsBox.style.display = 'none';
+            return;
         }
-        // Always show jump content when jump button is clicked
+        
+        // Show jump page content
+        statsBox.style.display = 'block';
         statsBox.innerHTML = `<strong>Jump to Page</strong>
 <div class="jump-controls" style="display: flex; gap: 5px; margin: 5px 0;">
     <button class="jump-first">First</button>
     <input type="number" class="jump-input" min="1" max="${totalPages}" placeholder="1-${totalPages}">
     <button class="jump-last">Last</button>
 </div>
-<button class="jump-go">Go</button>
-`;
+<button class="jump-go">Go</button>`;
 
         // Style the input and buttons
         const jumpInput = statsBox.querySelector('.jump-input');
