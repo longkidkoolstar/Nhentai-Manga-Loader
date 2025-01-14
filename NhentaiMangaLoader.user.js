@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Nhentai Manga Loader
 // @namespace    http://www.nhentai.net
-// @version      5.0.1
+// @version      5.1.0
 // @description  Loads nhentai manga chapters into one page in a long strip format with image scaling, click events, and a dark mode for reading.
 // @match        *://nhentai.net/g/*/*
 // @icon         https://i.imgur.com/S0x03gs.png
@@ -21,6 +21,7 @@
     let loadingImages = 0; // Track loading images
     let totalImages = 0; // Track total images
     let freshloadedcache = false;
+    const mangaId = extractMangaId(window.location.href);
 
 // Add this new function to handle jumping to pages
 function handleJumpToPage(input) {
@@ -392,6 +393,7 @@ async function createStatsWindow() {
     <input type="number" class="jump-input" min="1" max="${totalPages}" placeholder="1-${totalPages}">
     <button class="jump-last">Last</button>
 </div>
+<button class="load-saved-position">Load Saved Position</button> 
 <button class="jump-go">Go</button>`;
 
         // Style the input and buttons
@@ -434,11 +436,12 @@ async function createStatsWindow() {
         });
 
         // Add event listeners
+        const loadSavedPositionbtn =  statsBox.querySelector('.load-saved-position')
         const jumpGo = statsBox.querySelector('.jump-go');
         const jumpFirst = statsBox.querySelector('.jump-first');
         const jumpLast = statsBox.querySelector('.jump-last');
 
-
+        loadSavedPositionbtn.addEventListener('click', () => loadSavedPosition(mangaId));
         jumpGo.addEventListener('click', () => handleJumpToPage(jumpInput));
         jumpFirst.addEventListener('click', () => handleJumpToPage({ value: '1' }));
         jumpLast.addEventListener('click', () => handleJumpToPage({ value: totalPages.toString() }));
