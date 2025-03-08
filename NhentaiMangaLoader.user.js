@@ -1,9 +1,10 @@
 // ==UserScript==
 // @name         Nhentai Manga Loader
 // @namespace    http://www.nhentai.net
-// @version      5.1.0
+// @version      6.0
 // @description  Loads nhentai manga chapters into one page in a long strip format with image scaling, click events, and a dark mode for reading.
-// @match        *://nhentai.net/g/*/*
+// @match        nhentai.net/*
+// @require      https://code.jquery.com/jquery-3.6.0.min.js
 // @icon         https://i.imgur.com/S0x03gs.png
 // @grant        GM.getValue
 // @grant        GM.setValue
@@ -1294,44 +1295,694 @@ async function saveCurrentPosition(mangaId) {
     loadMangaButton.style.padding = '5px';
     loadMangaButton.style.margin = '0 10px 10px 0';
     loadMangaButton.style.zIndex = '9999999999';
-    
+
+if (window.location.href.startsWith("https://nhentai.net/g/")) {
     const buttonsDiv = document.querySelectorAll('.buttons');
-    
+
     if (buttonsDiv.length > 0) {
         //console.log('Buttons div already exists.');
-    } else if (!document.body.contains(loadMangaButton)) { 
+    } else if (!document.body.contains(loadMangaButton)) {
         document.body.appendChild(loadMangaButton);
-    
-        loadMangaButton.addEventListener('click', async function() {
+
+        loadMangaButton.addEventListener('click', async function () {
             const mangaId = extractMangaId(window.location.href);
             if (mangaId) {
                 loadMangaImages(); // Load the manga images first
-                 
+
                 // Check if there's a saved position for the manga
                 const savedPosition = await retrieveData(mangaId);
                 if (savedPosition) {
-                  const savedPage = savedPosition.pageNum;
-                  if (savedPage && (savedPage === totalPages || savedPage + 1 === totalPages)) {
-                    await GM.deleteValue(mangaId);
-                    console.log(`Saved position deleted for ${mangaId} since it's equal to total pages.`);
-                  } else {
-                    showPopupForSavedPosition("Do you want to load your last saved position?", async () => {
-                      await loadSavedPosition(mangaId);
-                    }, { 
-                      confirmText: 'Yes', 
-                      cancelText: 'No', 
-                      duration: 10000 
-                    });
-                  }
+                    const savedPage = savedPosition.pageNum;
+                    if (savedPage && (savedPage === totalPages || savedPage + 1 === totalPages)) {
+                        await GM.deleteValue(mangaId);
+                        console.log(`Saved position deleted for ${mangaId} since it's equal to total pages.`);
+                    } else {
+                        showPopupForSavedPosition("Do you want to load your last saved position?", async () => {
+                            await loadSavedPosition(mangaId);
+                        }, {
+                            confirmText: 'Yes',
+                            cancelText: 'No',
+                            duration: 10000
+                        });
+                    }
                 } else {
-                  console.log('No saved position found for manga ID:', mangaId);
+                    console.log('No saved position found for manga ID:', mangaId);
                 }
             }
             loadMangaButton.remove();
         });
     }
+}
     
     
         
     })();
+
+
+//---------------------------**Continue Reading**---------------------------------
+
+// Function to add the Continue Reading button to the menu
+function addContinueReadingButton() {
+    // Create the Continue Reading button
+    const continueReadingButtonHtml = `
+      <li>
+        <a href="/continue_reading/">
+          <i class="fa fa-arrow-right"></i>
+          Continue Reading
+        </a>
+      </li>
+    `;
+    const continueReadingButton = $(continueReadingButtonHtml);
+
+    // Append the Continue Reading button to the dropdown menu and the left menu
+    const dropdownMenu = $('ul.dropdown-menu');
+    dropdownMenu.append(continueReadingButton);
+
+    const menu = $('ul.menu.left');
+    menu.append(continueReadingButton);
+}
+
+// Call the function to add the Continue Reading button
+addContinueReadingButton();
+
+// Handle continue_reading page
+if (window.location.href.includes('/continue_reading')) {
+    console.log('Continue reading page detected');
+    
+    // Remove 404 Not Found elements
+    const notFoundHeading = document.querySelector('h1');
+    if (notFoundHeading && notFoundHeading.textContent === '404 – Not Found') {
+        notFoundHeading.remove();
+    }
+    
+    const notFoundMessage = document.querySelector('p');
+    if (notFoundMessage && notFoundMessage.textContent === "Looks like what you're looking for isn't here.") {
+        notFoundMessage.remove();
+    }
+
+    // Add custom CSS for better styling with dark theme
+    const customCSS = document.createElement('style');
+    customCSS.textContent = `
+        body {
+            background-color: #2c2c2c;
+            color: #f1f1f1;
+            margin: 0;
+            padding: 0;
+        }
+        
+        .continue-reading-container {
+            width: 95%;
+            max-width: 1200px;
+            margin: 20px auto;
+            font-family: Arial, sans-serif;
+            padding: 20px;
+            overflow-x: hidden;
+            overflow-y: auto;
+            max-height: 100vh; /* Prevents it from exceeding the screen height */
+        }
+        
+        h1.continue-reading-title {
+            text-align: center;
+            color: #ed2553;
+            margin-bottom: 20px;
+        }
+        
+        table.manga-table {
+            width: 100%;
+            border-collapse: collapse;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+            background-color: #3c3c3c;
+            border-radius: 5px;
+            overflow: hidden;
+            box-sizing: border-box;
+            table-layout: fixed;
+        }
+        
+        .manga-table th {
+            background-color: #ed2553;
+            color: white;
+            padding: 12px;
+            text-align: left;
+        }
+        
+        .manga-table td {
+            padding: 12px;
+            border-bottom: 1px solid #4c4c4c;
+            word-wrap: break-word;
+            vertical-align: top;
+        }
+        
+        /* Adjust column widths to optimize vertical layout */
+        .manga-table th:nth-child(1),
+        .manga-table td:nth-child(1) {
+            width: 30%;
+        }
+        
+        .manga-table th:nth-child(2),
+        .manga-table td:nth-child(2) {
+            width: 30%;
+        }
+        
+        .manga-table th:nth-child(3),
+        .manga-table td:nth-child(3) {
+            width: 30%;
+        }
+        
+        .manga-table th:nth-child(4),
+        .manga-table td:nth-child(4) {
+            width: 30%;
+        }
+        
+        .manga-table th:nth-child(5),
+        .manga-table td:nth-child(5) {
+            width: 30%;
+            text-align: center;
+        }
+        
+        .manga-table tr:hover {
+            background-color: #4c4c4c;
+        }
+        
+        .manga-table a {
+            color: #ed2553;
+            text-decoration: none;
+            font-weight: bold;
+        }
+        
+        .manga-table a:hover {
+            text-decoration: underline;
+        }
+        
+        .manga-title {
+            display: flex;
+            align-items: flex-start;
+            flex-wrap: wrap;
+        }
+        
+        .manga-cover {
+            width: 50px;
+            height: 70px;
+            margin-right: 10px;
+            margin-bottom: 5px;
+            object-fit: cover;
+            border-radius: 3px;
+        }
+        
+        .manga-title a {
+            display: inline-block;
+            /* Allow title to wrap properly */
+            word-break: break-word;
+            overflow-wrap: break-word;
+            width: 100%;
+            max-height: 100px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            display: -webkit-box;
+            -webkit-line-clamp: 4; /* Number of lines to show */
+            -webkit-box-orient: vertical;
+        }
+        
+        .progress-bar-container {
+            width: 100%;
+            background-color: #555;
+            height: 8px;
+            border-radius: 4px;
+            margin-top: 5px;
+        }
+        
+        .progress-bar {
+            height: 100%;
+            border-radius: 4px;
+            background-color: #ed2553;
+        }
+        
+        .language-tag {
+            display: inline-block;
+            padding: 3px 8px;
+            border-radius: 3px;
+            background-color: #555;
+            font-size: 12px;
+            text-transform: capitalize;
+        }
+        
+        .continue-button {
+            display: inline-block;
+            padding: 6px 12px;
+            background-color: #ed2553;
+            color: white !important;
+            border-radius: 4px;
+            text-align: center;
+            transition: background-color 0.2s;
+        }
+        
+        .continue-button:hover {
+            background-color: #c91c45;
+            text-decoration: none !important;
+        }
+        
+        .loading-indicator {
+            text-align: center;
+            margin: 20px 0;
+            font-size: 16px;
+            color: #ed2553;
+        }
+        
+        .img-error {
+            border: 2px solid #ed2553;
+            position: relative;
+        }
+        
+        .remove-button {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background-color: white;
+            color: #ed2553; /* Initial red icon */
+            border: 2px solid #ed2553; /* Red border */
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            cursor: pointer;
+            transition: background-color 0.2s, color 0.2s, transform 0.1s, box-shadow 0.2s;
+            font-size: 14px;
+            font-weight: bold;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+            margin: 0 auto;
+        }
+
+        .remove-button:hover {
+            background-color: #ed2553; /* Turns red */
+            color: white; /* Icon turns white */
+            box-shadow: 0 3px 8px rgba(0, 0, 0, 0.3);
+            transform: scale(1.1);
+        }
+
+        .remove-button:active {
+            transform: scale(0.95);
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+        }
+        
+        /* Responsive adjustments for smaller screens */
+        @media (max-width: 768px) {
+            .continue-reading-container {
+                width: 98%;
+                padding: 10px;
+            }
+            
+            .manga-table th, 
+            .manga-table td {
+                padding: 8px 6px;
+            }
+            
+            .manga-cover {
+                width: 40px;
+                height: 56px;
+            }
+            
+            .continue-button {
+                padding: 4px 8px;
+                font-size: 14px;
+            }
+            
+            /* For the continue button column */
+            .manga-table td:nth-child(4) {
+                position: relative;
+                vertical-align: middle;
+            }
+            
+            /* Align the continue button to the bottom */
+            .manga-table td:nth-child(4) .continue-button {
+                position: relative;
+                bottom: 8px;
+                left: 6px;
+            }
+        }
+    `;
+    document.head.appendChild(customCSS);
+
+    // Create container element
+    const container = document.createElement('div');
+    container.className = 'continue-reading-container';
+    document.body.appendChild(container);
+    
+    // Add title
+    const title = document.createElement('h1');
+    title.className = 'continue-reading-title';
+    title.textContent = 'Continue Reading';
+    container.appendChild(title);
+    
+    // Add loading indicator
+    const loadingIndicator = document.createElement('div');
+    loadingIndicator.className = 'loading-indicator';
+    loadingIndicator.textContent = 'Loading your manga collection...';
+    container.appendChild(loadingIndicator);
+
+    // Implement the continue reading page
+    const mangaList = [];
+    
+    // Array of possible subdomains to try
+    const subdomains = ['t3', 't', 't1', 't2', 't4', 't5', 't7'];
+    
+    // Helper function to check if an image URL exists
+    function checkImageExists(url) {
+        return new Promise((resolve, reject) => {
+            const img = new Image();
+            img.onload = () => resolve(true);
+            img.onerror = () => resolve(false);
+            img.src = url;
+        });
+    }
+    
+    // Helper function to check if an image URL exists
+    function checkImageExists(url) {
+        return new Promise((resolve, reject) => {
+            const img = new Image();
+            img.onload = () => resolve(true);
+            img.onerror = () => resolve(false);
+            img.src = url;
+        });
+    }
+
+    // Helper function to find a working image URL
+    async function findWorkingImageUrl(mediaId) {
+        for (const subdomain of subdomains) {
+            // Try both webp and png formats
+            const webpUrl = `https://${subdomain}.nhentai.net/galleries/${mediaId}/cover.webp`;
+            const pngUrl = `https://${subdomain}.nhentai.net/galleries/${mediaId}/cover.png`;
+            const jpgUrl = `https://${subdomain}.nhentai.net/galleries/${mediaId}/cover.jpg`;
+
+            console.log(`Trying cover image URL: ${webpUrl}`);
+            const webpExists = await checkImageExists(webpUrl);
+            if (webpExists) {
+                console.log(`Found working URL: ${webpUrl}`);
+                return webpUrl;
+            }
+
+            console.log(`Trying cover image URL: ${pngUrl}`);
+            const pngExists = await checkImageExists(pngUrl);
+            if (pngExists) {
+                console.log(`Found working URL: ${pngUrl}`);
+                return pngUrl;
+            }
+
+            console.log(`Trying cover image URL: ${jpgUrl}`);
+            const jpgExists = await checkImageExists(jpgUrl);
+            if (jpgExists) {
+                console.log(`Found working URL: ${jpgUrl}`);
+                return jpgUrl;
+            }
+        }
+        // If all fail, return the default with t3 subdomain as fallback
+        return `https://t3.nhentai.net/galleries/${mediaId}/cover.jpg`;
+    }
+    
+// Function to create and display the table
+function displayMangaTable() {
+    if (mangaList.length === 0) {
+        loadingIndicator.textContent = 'No manga found in your collection.';
+        return;
+    }
+    
+    // Sort the manga list by most recently read (highest page number to lowest)
+    mangaList.sort((a, b) => b.currentPage - a.currentPage);
+    console.log('Sorted manga list:', mangaList);
+
+    // Create a table to display the manga list
+    const table = document.createElement('table');
+    table.className = 'manga-table';
+    table.innerHTML = `
+        <thead>
+            <tr>
+                <th>Manga Title</th>
+                <th>Progress</th>
+                <th>Language</th>
+                <th>Action</th>
+                <th>Remove</th>
+            </tr>
+        </thead>
+        <tbody></tbody>
+    `;
+    
+    const tbody = table.querySelector('tbody');
+
+    // Add each manga to the table
+    mangaList.forEach(manga => {
+        console.log('Adding manga to table:', manga);
+        const row = document.createElement('tr');
+        
+        // Calculate progress percentage
+        const progressPercent = (manga.currentPage / manga.pages) * 100;
+        
+        row.innerHTML = `
+            <td>
+                <div class="manga-title">
+                    <img class="manga-cover" src="${manga.coverImageUrl}" alt="Cover" onerror="this.classList.add('img-error')">
+                    <a href="/g/${manga.id}/" title="${manga.title}">${manga.title}</a>
+                </div>
+            </td>
+            <td>
+                <div>Page ${manga.currentPage} of ${manga.pages}</div>
+                <div class="progress-bar-container">
+                    <div class="progress-bar" style="width: ${progressPercent}%"></div>
+                </div>
+            </td>
+            <td><span class="language-tag">${manga.languageDisplay}</span></td>
+            <td><a href="/g/${manga.id}/${manga.currentPage}/" class="continue-button">Continue Reading</a></td>
+            <td><button class="remove-button" data-id="${manga.id}">X</button></td>
+        `;
+        tbody.appendChild(row);
+
+        // Remove manga entry from GM storage when 'X' button is clicked
+        row.querySelector('.remove-button').addEventListener('click', async function() {
+            const mangaId = this.getAttribute('data-id');
+            console.log(`Removing manga ID: ${mangaId}`);
+
+            // Remove from GM storage
+            await GM.deleteValue(mangaId);
+            await GM.deleteValue(`metadata_${mangaId}`);
+            console.log(`Manga ID ${mangaId} removed from GM storage`);
+
+            // Remove row from table
+            row.remove();
+        });
+   
+
+    // Remove loading indicator and add the table
+    loadingIndicator.remove();
+    container.appendChild(table);
+    console.log('Table added to page');
+
+
+            
+            // Handle image loading errors and try alternative subdomains
+            const imgElement = row.querySelector('.manga-cover');
+            imgElement.addEventListener('error', async function() {
+                console.log(`Image failed to load: ${manga.coverImageUrl}`);
+                
+                // Extract media ID from the URL
+                const urlParts = manga.coverImageUrl.split('/');
+                const mediaId = urlParts[urlParts.length - 2];
+                
+                // Find a working URL
+                const newUrl = await findWorkingImageUrl(mediaId);
+                
+                if (newUrl !== manga.coverImageUrl) {
+                    console.log(`Updating image URL from ${manga.coverImageUrl} to ${newUrl}`);
+                    this.src = newUrl;
+                    
+                    // Update the cached metadata with the working URL
+                    const metadataKey = `metadata_${manga.id}`;
+                    GM.getValue(metadataKey, null).then(cachedMetadata => {
+                        if (cachedMetadata) {
+                            const metadata = JSON.parse(cachedMetadata);
+                            metadata.coverImageUrl = newUrl;
+                            GM.setValue(metadataKey, JSON.stringify(metadata))
+                                .then(() => console.log(`Updated cached metadata with new URL for manga ID: ${manga.id}`));
+                        }
+                    });
+                }
+            });
+        });
+
+        // Remove loading indicator and add the table
+        loadingIndicator.remove();
+        container.appendChild(table);
+        console.log('Table added to page');
+    }
+    
+    // Function to fetch manga data from API and save it to GM.setValue
+    async function fetchAndSaveMangaData(mangaId, pageNum) {
+        const metadataKey = `metadata_${mangaId}`;
+        
+        // Try to get cached metadata first
+        const cachedMetadata = await GM.getValue(metadataKey, null);
+        
+        if (cachedMetadata) {
+            console.log(`Using cached metadata for manga ID: ${mangaId}`);
+            const metadata = JSON.parse(cachedMetadata);
+            
+            mangaList.push({
+                id: mangaId,
+                title: metadata.title,
+                coverImageUrl: metadata.coverImageUrl,
+                languageDisplay: metadata.languageDisplay,
+                pages: metadata.pages,
+                currentPage: pageNum,
+            });
+            
+            // Check if we have all manga data and display the table
+            checkAndDisplayTable();
+            return;
+        }
+        
+        // If no cached data, fetch from API
+        console.log(`Fetching metadata for manga ID: ${mangaId}`);
+        try {
+            const response = await fetch(`https://nhentai.net/api/gallery/${mangaId}`);
+            const data = await response.json();
+            
+            if (data) {
+                console.log('Fetched manga data:', data);
+                const mangaTitle = data.title.english;
+                const mediaId = data.media_id;
+                
+                // Get a working cover image URL with appropriate subdomain
+                const coverImageUrl = await findWorkingImageUrl(mediaId);
+                
+                // Fix language retrieval
+                let languageDisplay = 'Unknown';
+                if (data.tags) {
+                    const languageTag = data.tags.find(tag => tag.type === 'language');
+                    if (languageTag) {
+                        languageDisplay = languageTag.name;
+                    }
+                }
+                
+                const pages = data.num_pages;
+                
+                // Create metadata object to cache
+                const metadata = {
+                    title: mangaTitle,
+                    coverImageUrl: coverImageUrl,
+                    languageDisplay: languageDisplay,
+                    pages: pages,
+                    lastUpdated: Date.now()
+                };
+                
+                // Save metadata to GM storage
+                await GM.setValue(metadataKey, JSON.stringify(metadata));
+                console.log(`Saved metadata for manga ID: ${mangaId}`);
+                
+                mangaList.push({
+                    id: mangaId,
+                    title: mangaTitle,
+                    coverImageUrl: coverImageUrl,
+                    languageDisplay: languageDisplay,
+                    pages: pages,
+                    currentPage: pageNum,
+                });
+                
+                // Check if we have all manga data and display the table
+                checkAndDisplayTable();
+            } else {
+                console.log('No data found for manga ID:', mangaId);
+                checkAndDisplayTable();
+            }
+        } catch (error) {
+            console.error('Error fetching manga data:', error);
+            checkAndDisplayTable();
+        }
+    }
+    
+    // Counter to track pending fetch operations
+    let pendingFetches = 0;
+    let totalMangaCount = 0;
+    
+    // Function to check if all data is fetched and display the table
+    function checkAndDisplayTable() {
+        pendingFetches--;
+        loadingIndicator.textContent = `Loading your manga collection... (${totalMangaCount - pendingFetches}/${totalMangaCount})`;
+        
+        if (pendingFetches <= 0) {
+            displayMangaTable();
+        }
+    }
+    
+    // Main function to load manga
+    async function getStoredManga() {
+        const allValues = await GM.getValues();
+        console.log('All values:', allValues);
+        
+        // Get all manga IDs (numerical keys) and count them
+        const mangaIds = Object.keys(allValues).filter(key => key.match(/^\d+$/));
+        totalMangaCount = mangaIds.length;
+        pendingFetches = totalMangaCount;
+        
+        if (totalMangaCount === 0) {
+            loadingIndicator.textContent = 'No manga found in your collection.';
+            return;
+        }
+        
+        // Process each manga
+        mangaIds.forEach(mangaId => {
+            console.log('Processing manga ID:', mangaId);
+            const mangaData = JSON.parse(allValues[mangaId]);
+            fetchAndSaveMangaData(mangaId, mangaData.pageNum);
+        });
+    }
+    
+    // Start the process
+    getStoredManga();
+}
+
+// Modify the analyzeURL function to return the manga data
+async function analyzeURL(url) {
+    try {
+        if (!window.searchInProgress) return; // Stop if search was canceled
+        const response = await fetch(url);
+        const html = await response.text();
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(html, 'text/html');
+        const coverImage = doc.querySelector('#cover img.lazyload');
+        const coverImageUrl = coverImage ? (coverImage.getAttribute('data-src') || coverImage.src) : null;
+        const title = doc.querySelector('#info h1')?.textContent.trim();
+        const tags = Array.from(doc.querySelectorAll('#tags .tag')).map(tag => tag.textContent.trim());
+        const pages = parseInt(doc.querySelector('#tags .tag-container:nth-last-child(2) .name')?.textContent.trim(), 10);
+        const uploadDate = doc.querySelector('#tags .tag-container:last-child time')?.getAttribute('datetime');
+        // Extract and handle languages
+        let languages = [];
+        const tagContainers = doc.querySelectorAll('.tag-container.field-name');
+        tagContainers.forEach(container => {
+            if (container.textContent.includes('Languages:')) {
+                const languageElements = container.querySelectorAll('.tags .tag .name');
+                languageElements.forEach(languageElement => {
+                    let language = languageElement.textContent.trim().toLowerCase();
+                    languages.push(language);
+                });
+            }
+        });
+        // Determine which language to display
+        let languageDisplay = 'Unknown';
+        if (languages.includes('english')) {
+            languageDisplay = 'English';
+        } else if (languages.includes('translated') && languages.length === 1) {
+            languageDisplay = 'English';
+        } else if (languages.includes('translated') && languages.length > 1) {
+            // Exclude 'translated' and show other language(s)
+            const otherLanguages = languages.filter(lang => lang !== 'translated');
+            languageDisplay = otherLanguages.length > 0 ? otherLanguages.map(lang => lang.charAt(0).toUpperCase() + lang.slice(1)).join(', ') : 'Unknown';
+        } else {
+            languageDisplay = languages.map(lang => lang.charAt(0).toUpperCase() + lang.slice(1)).join(', ');
+        }
+        return {
+            title: title,
+            coverImageUrl: coverImageUrl,
+            languageDisplay: languageDisplay,
+            pages: pages,
+        };
+    } catch (error) {
+        console.error('Error analyzing page:', error);
+    }
+}
+//---------------------------**Continue Reading**---------------------------------
 
