@@ -1,7 +1,8 @@
 // ==UserScript==
 // @name         Nhentai Manga Loader
 // @namespace    http://www.nhentai.net
-// @version      6.0.1
+// @version      6.0.1.1
+// @author       longkidkoolstar
 // @description  Loads nhentai manga chapters into one page in a long strip format with image scaling, click events, and a dark mode for reading.
 // @match        https://nhentai.net/*
 // @require      https://code.jquery.com/jquery-3.6.0.min.js
@@ -1935,54 +1936,66 @@ function displayMangaTable() {
     getStoredManga();
 }
 
-// Modify the analyzeURL function to return the manga data
-async function analyzeURL(url) {
-    try {
-        if (!window.searchInProgress) return; // Stop if search was canceled
-        const response = await fetch(url);
-        const html = await response.text();
-        const parser = new DOMParser();
-        const doc = parser.parseFromString(html, 'text/html');
-        const coverImage = doc.querySelector('#cover img.lazyload');
-        const coverImageUrl = coverImage ? (coverImage.getAttribute('data-src') || coverImage.src) : null;
-        const title = doc.querySelector('#info h1')?.textContent.trim();
-        const tags = Array.from(doc.querySelectorAll('#tags .tag')).map(tag => tag.textContent.trim());
-        const pages = parseInt(doc.querySelector('#tags .tag-container:nth-last-child(2) .name')?.textContent.trim(), 10);
-        const uploadDate = doc.querySelector('#tags .tag-container:last-child time')?.getAttribute('datetime');
-        // Extract and handle languages
-        let languages = [];
-        const tagContainers = doc.querySelectorAll('.tag-container.field-name');
-        tagContainers.forEach(container => {
-            if (container.textContent.includes('Languages:')) {
-                const languageElements = container.querySelectorAll('.tags .tag .name');
-                languageElements.forEach(languageElement => {
-                    let language = languageElement.textContent.trim().toLowerCase();
-                    languages.push(language);
-                });
-            }
-        });
-        // Determine which language to display
-        let languageDisplay = 'Unknown';
-        if (languages.includes('english')) {
-            languageDisplay = 'English';
-        } else if (languages.includes('translated') && languages.length === 1) {
-            languageDisplay = 'English';
-        } else if (languages.includes('translated') && languages.length > 1) {
-            // Exclude 'translated' and show other language(s)
-            const otherLanguages = languages.filter(lang => lang !== 'translated');
-            languageDisplay = otherLanguages.length > 0 ? otherLanguages.map(lang => lang.charAt(0).toUpperCase() + lang.slice(1)).join(', ') : 'Unknown';
-        } else {
-            languageDisplay = languages.map(lang => lang.charAt(0).toUpperCase() + lang.slice(1)).join(', ');
-        }
-        return {
-            title: title,
-            coverImageUrl: coverImageUrl,
-            languageDisplay: languageDisplay,
-            pages: pages,
-        };
-    } catch (error) {
-        console.error('Error analyzing page:', error);
+
+async function logScriptDebugging() {
+    console.log("===== CONTINUE READING SCRIPT DEBUG LOG =====");
+
+    // Check if we are on the correct page
+    console.log("Is '/continue_reading' in URL?", window.location.href.includes('/continue_reading'));
+
+    // Log main elements your script interacts with
+    console.log("Dropdown Menu:", document.querySelector("ul.dropdown-menu"));
+    console.log("Left Menu:", document.querySelector("ul.menu.left"));
+    console.log("Continue Reading Container:", document.querySelector(".continue-reading-container"));
+    
+    // Check if the 404 elements exist and if they were removed
+    console.log("404 Heading Present:", document.querySelector('h1')?.textContent);
+    console.log("404 Message Present:", document.querySelector('p')?.textContent);
+
+    // Log the Manga Table and its rows
+    let mangaTable = document.querySelector("table.manga-table");
+    console.log("Manga Table Found:", !!mangaTable);
+    if (mangaTable) {
+        console.log("Manga Table Rows Count:", mangaTable.querySelectorAll("tr").length);
     }
+
+    // Log all fetch/XHR requests related to the manga collection
+    console.log("Pending Fetch Requests:", window.fetch ? window.fetch.toString() : "Fetch not supported");
+    
+    // Log localStorage data (if manga collection is stored there)
+    console.log("localStorage Data:", { ...localStorage });
+
+
+    // Log active scripts running on the page
+    console.log("Loaded Scripts:", [...document.scripts].map(s => s.src));
+
+    // Log all network requests related to fetching manga data
+    if (window.performance && window.performance.getEntriesByType) {
+        let networkRequests = window.performance.getEntriesByType("resource");
+        console.log("Network Requests (Filtered):", networkRequests.filter(req => req.name.includes("manga") || req.name.includes("continue_reading")));
+    }
+
+    // Log Tampermonkey GM.getValue (asynchronous values)
+    if (typeof GM !== "undefined" && GM.getValue) {
+        try {
+            let mangaCollection = await GM.getValue("mangaCollection", "No Data");
+            let lastRead = await GM.getValue("lastReadChapter", "No Data");
+
+            console.log("GM.getValue - mangaCollection:", mangaCollection);
+            console.log("GM.getValue - lastReadChapter:", lastRead);
+        } catch (error) {
+            console.error("Error fetching GM values:", error);
+        }
+    } else {
+        console.warn("GM.getValue not available. Is the script running in Tampermonkey?");
+    }
+
+    console.log("===== END LOG =====\n");
 }
+
+// Run this debug function every 5 seconds
+setInterval(logScriptDebugging, 5000);
+
+
 //---------------------------**Continue Reading**---------------------------------
 
