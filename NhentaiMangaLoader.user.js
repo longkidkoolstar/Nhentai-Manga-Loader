@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Nhentai Manga Loader
 // @namespace    http://www.nhentai.net
-// @version      6.0.1.1
+// @version      6.0.2
 // @author       longkidkoolstar
 // @description  Loads nhentai manga chapters into one page in a long strip format with image scaling, click events, and a dark mode for reading.
 // @match        https://nhentai.net/*
@@ -1911,11 +1911,19 @@ function displayMangaTable() {
     
     // Main function to load manga
     async function getStoredManga() {
-        const allValues = await GM.getValues();
-        console.log('All values:', allValues);
+        const mangaIds = [];
+        const allValues = {};
         
-        // Get all manga IDs (numerical keys) and count them
-        const mangaIds = Object.keys(allValues).filter(key => key.match(/^\d+$/));
+        for (const key of await GM.listValues()) {
+            const value = await GM.getValue(key);
+            allValues[key] = value;
+            
+            if (key.match(/^\d+$/)) {
+                mangaIds.push(key);
+            }
+        }
+        
+        console.log('All values:', allValues);
         totalMangaCount = mangaIds.length;
         pendingFetches = totalMangaCount;
         
@@ -1935,67 +1943,6 @@ function displayMangaTable() {
     // Start the process
     getStoredManga();
 }
-
-
-async function logScriptDebugging() {
-    console.log("===== CONTINUE READING SCRIPT DEBUG LOG =====");
-
-    // Check if we are on the correct page
-    console.log("Is '/continue_reading' in URL?", window.location.href.includes('/continue_reading'));
-
-    // Log main elements your script interacts with
-    console.log("Dropdown Menu:", document.querySelector("ul.dropdown-menu"));
-    console.log("Left Menu:", document.querySelector("ul.menu.left"));
-    console.log("Continue Reading Container:", document.querySelector(".continue-reading-container"));
-    
-    // Check if the 404 elements exist and if they were removed
-    console.log("404 Heading Present:", document.querySelector('h1')?.textContent);
-    console.log("404 Message Present:", document.querySelector('p')?.textContent);
-
-    // Log the Manga Table and its rows
-    let mangaTable = document.querySelector("table.manga-table");
-    console.log("Manga Table Found:", !!mangaTable);
-    if (mangaTable) {
-        console.log("Manga Table Rows Count:", mangaTable.querySelectorAll("tr").length);
-    }
-
-    // Log all fetch/XHR requests related to the manga collection
-    console.log("Pending Fetch Requests:", window.fetch ? window.fetch.toString() : "Fetch not supported");
-    
-    // Log localStorage data (if manga collection is stored there)
-    console.log("localStorage Data:", { ...localStorage });
-
-
-    // Log active scripts running on the page
-    console.log("Loaded Scripts:", [...document.scripts].map(s => s.src));
-
-    // Log all network requests related to fetching manga data
-    if (window.performance && window.performance.getEntriesByType) {
-        let networkRequests = window.performance.getEntriesByType("resource");
-        console.log("Network Requests (Filtered):", networkRequests.filter(req => req.name.includes("manga") || req.name.includes("continue_reading")));
-    }
-
-    // Log Tampermonkey GM.getValue (asynchronous values)
-    if (typeof GM !== "undefined" && GM.getValue) {
-        try {
-            let mangaCollection = await GM.getValue("mangaCollection", "No Data");
-            let lastRead = await GM.getValue("lastReadChapter", "No Data");
-
-            console.log("GM.getValue - mangaCollection:", mangaCollection);
-            console.log("GM.getValue - lastReadChapter:", lastRead);
-        } catch (error) {
-            console.error("Error fetching GM values:", error);
-        }
-    } else {
-        console.warn("GM.getValue not available. Is the script running in Tampermonkey?");
-    }
-
-    console.log("===== END LOG =====\n");
-}
-
-// Run this debug function every 5 seconds
-setInterval(logScriptDebugging, 5000);
-
 
 //---------------------------**Continue Reading**---------------------------------
 
