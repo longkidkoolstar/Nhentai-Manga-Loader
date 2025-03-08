@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Nhentai Manga Loader
 // @namespace    http://www.nhentai.net
-// @version      6.0.2
+// @version      6.0.3
 // @author       longkidkoolstar
 // @description  Loads nhentai manga chapters into one page in a long strip format with image scaling, click events, and a dark mode for reading.
 // @match        https://nhentai.net/*
@@ -1850,13 +1850,19 @@ function displayMangaTable() {
                 // Get a working cover image URL with appropriate subdomain
                 const coverImageUrl = await findWorkingImageUrl(mediaId);
                 
-                // Fix language retrieval
+                // Determine which language to display
                 let languageDisplay = 'Unknown';
-                if (data.tags) {
-                    const languageTag = data.tags.find(tag => tag.type === 'language');
-                    if (languageTag) {
-                        languageDisplay = languageTag.name;
-                    }
+                const languages = data.tags.filter(tag => tag.type === 'language').map(tag => tag.name.toLowerCase());
+                if (languages.includes('english')) {
+                    languageDisplay = 'English';
+                } else if (languages.includes('translated') && languages.length === 1) {
+                    languageDisplay = 'English';
+                } else if (languages.includes('translated') && languages.length > 1) {
+                    // Exclude 'translated' and show other language(s)
+                    const otherLanguages = languages.filter(lang => lang !== 'translated');
+                    languageDisplay = otherLanguages.length > 0 ? otherLanguages.map(lang => lang.charAt(0).toUpperCase() + lang.slice(1)).join(', ') : 'Unknown';
+                } else {
+                    languageDisplay = languages.map(lang => lang.charAt(0).toUpperCase() + lang.slice(1)).join(', ');
                 }
                 
                 const pages = data.num_pages;
@@ -1908,7 +1914,37 @@ function displayMangaTable() {
             displayMangaTable();
         }
     }
-    
+
+
+    // Function to delete completed manga
+    async function deleteCompletedManga() {
+        const allKeys = await GM.listValues();
+        console.log('All keys:', allKeys);
+        
+        // Get all manga IDs (numerical keys)
+        const mangaIds = allKeys.filter(key => key.match(/^\d+$/));
+        
+        // Process each manga
+        for (const mangaId of mangaIds) {
+            console.log('Processing manga ID:', mangaId);
+            const mangaData = await GM.getValue(mangaId);
+            const mangaDataObject = JSON.parse(mangaData);
+            const pagesRead = mangaDataObject.pageNum;
+            const metadataKey = `metadata_${mangaId}`;
+            const metadata = await GM.getValue(metadataKey);
+            const metadataObject = JSON.parse(metadata);
+            const totalPages = metadataObject.pages;
+            
+            // Check if manga is completed (one less than or equal to total pages)
+            if (pagesRead >= totalPages - 1) {
+                console.log(`Deleting completed manga ID: ${mangaId}`);
+                await GM.deleteValue(mangaId);
+                await GM.deleteValue(metadataKey);
+            }
+        }
+    }
+
+
     // Main function to load manga
     async function getStoredManga() {
         const mangaIds = [];
@@ -1939,7 +1975,7 @@ function displayMangaTable() {
             fetchAndSaveMangaData(mangaId, mangaData.pageNum);
         });
     }
-    
+    await deleteCompletedManga();
     // Start the process
     getStoredManga();
 }
