@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Nhentai Manga Loader
 // @namespace    http://www.nhentai.net
-// @version      6.0.4
+// @version      6.0.5
 // @author       longkidkoolstar
 // @description  Loads nhentai manga chapters into one page in a long strip format with image scaling, click events, and a dark mode for reading.
 // @match        https://nhentai.net/*
@@ -1748,7 +1748,7 @@ function displayMangaTable() {
                 </div>
             </td>
             <td><span class="language-tag">${manga.languageDisplay}</span></td>
-            <td><a href="/g/${manga.id}/${manga.currentPage}/" class="continue-button">Continue Reading</a></td>
+            <td><a href="/g/${manga.id}/${manga.currentPage}/" class="continue-button" onclick="localStorage.setItem('redirected', 'true');">Continue Reading</a></td>            
             <td><button class="remove-button" data-id="${manga.id}">X</button></td>
         `;
         tbody.appendChild(row);
