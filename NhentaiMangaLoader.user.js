@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Nhentai Manga Loader
 // @namespace    http://www.nhentai.net
-// @version      6.0.5
+// @version      6.0.6
 // @author       longkidkoolstar
 // @description  Loads nhentai manga chapters into one page in a long strip format with image scaling, click events, and a dark mode for reading.
 // @match        https://nhentai.net/*
@@ -556,7 +556,23 @@ function addClickEventToImage(image) {
 // Add this at the top level to track image loading status
 const imageStatus = []; // Array to track the status of each image
 
+// Add an event listener to detect when the user scrolls
+window.addEventListener('scroll', logCurrentPage);
 
+// Variable to store the previous page
+let previousPage = null;
+
+// Function to log the current page
+function logCurrentPage() {
+    const currentPage = getCurrentVisiblePage();
+    const totalPages = document.querySelectorAll('.manga-page-container').length;
+
+    if (previousPage !== currentPage) {
+        //console.log(`Current page: ${currentPage}`);
+        previousPage = currentPage;
+        if (currentPage >= totalPages - 1) deleteMangaFromStorage();
+    }
+}
 
 function getCurrentVisiblePage() {
     const pageContainers = document.querySelectorAll('.manga-page-container');
@@ -605,7 +621,12 @@ function getCurrentVisiblePage() {
 }
 
 
-
+// Function to delete manga from storage
+function deleteMangaFromStorage() {
+    const mangaId = window.location.pathname.match(/\/g\/(\d+)/)[1];
+    GM.deleteValue(mangaId);
+    console.log(`Manga ${mangaId} deleted from storage`);
+}
 
 // Add a scroll event listener to the manga container// 
 
