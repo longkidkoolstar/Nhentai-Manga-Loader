@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Nhentai Manga Loader
 // @namespace    http://www.nhentai.net
-// @version      6.0.6
+// @version      6.0.7
 // @author       longkidkoolstar
 // @description  Loads nhentai manga chapters into one page in a long strip format with image scaling, click events, and a dark mode for reading.
 // @match        https://nhentai.net/*
@@ -560,14 +560,14 @@ const imageStatus = []; // Array to track the status of each image
 window.addEventListener('scroll', logCurrentPage);
 
 // Variable to store the previous page
-let previousPage = null;
+let previousPage = 0;
 
 // Function to log the current page
 function logCurrentPage() {
     const currentPage = getCurrentVisiblePage();
     const totalPages = document.querySelectorAll('.manga-page-container').length;
 
-    if (previousPage !== currentPage) {
+    if ((currentPage === totalPages - 1 || currentPage === totalPages)) {
         //console.log(`Current page: ${currentPage}`);
         previousPage = currentPage;
         if (currentPage >= totalPages - 1) deleteMangaFromStorage();
@@ -628,18 +628,20 @@ function deleteMangaFromStorage() {
     console.log(`Manga ${mangaId} deleted from storage`);
 }
 
-// Add a scroll event listener to the manga container// 
+// Replace the addScrollListener function with the following code
+let previousPagex = 0; // Initialize previousPage at the top level
 
-function addScrollListener(mangaContainer, mangaId) {
-    mangaContainer.addEventListener('scroll', async () => {
-        // Only save the current page if the popup is not visible
-        if (!isPopupVisible || freshloadedcache) {
-            const currentPage = getCurrentVisiblePage();
-            //console.log(`Current visible page: ${currentPage}`);
+window.addEventListener('scroll', async () => {
+    const currentPage = getCurrentVisiblePage();
+    // Only save the current page if the popup is not visible and the current page is greater than the previous page
+    if (!isPopupVisible || freshloadedcache) {
+        if (currentPage > previousPagex) {
+            console.log(`Current page: ${currentPage}, Previous page: ${previousPagex}`);
             await saveCurrentPosition(mangaId, currentPage);
+            previousPagex = currentPage; // Update previousPage to the current page
         }
-    });
-}
+    }
+});
 
 
 
@@ -652,8 +654,7 @@ function loadMangaImages(mangaId) {
     mangaContainer.id = 'manga-container';
     document.body.appendChild(mangaContainer);
     
-    // Add the scroll listener for saving the current position immediately
-    addScrollListener(mangaContainer, mangaId);
+
     
 
     const exitButtonTop = createExitButton();
@@ -712,7 +713,8 @@ function loadMangaImages(mangaId) {
         const mangaId = extractMangaId(window.location.href);
         const currentPage = getCurrentVisiblePage(); // Get the current visible page number
         if (!isPopupVisible || freshloadedcache) {
-            saveCurrentPosition(mangaId, currentPage);
+            console.log("load again");
+           // saveCurrentPosition(mangaId, currentPage);
         }
         
 
@@ -787,7 +789,8 @@ async function loadPage(pageNumber, pageUrl, retryCount = 0) {
         
         // Ensure position is saved for cached pages
         const currentPage = pageNumber;
-        saveCurrentPosition(mangaId, currentPage); // Save the position for cached pages
+        console.log("load");
+       // saveCurrentPosition(mangaId, currentPage); // Save the position for cached pages
         
         
 
@@ -923,7 +926,8 @@ function observeAndPreloadImages() {
             const mangaId = extractMangaId(window.location.href);
             const currentPage = getCurrentVisiblePage(entry); // Get the current page number
             if (!isPopupVisible || freshloadedcache) {
-                saveCurrentPosition(mangaId, currentPage);
+                console.log("preload");
+               // saveCurrentPosition(mangaId, currentPage);
             }
           }
         }
@@ -1035,7 +1039,8 @@ const observer = new IntersectionObserver((entries) => {
                 const mangaId = extractMangaId(window.location.href);
                 const currentPage = getCurrentVisiblePage(); // Get the current visible page number
                 if (!isPopupVisible || freshloadedcache) {
-                    saveCurrentPosition(mangaId, currentPage);
+                    console.log("intesect");
+                   // saveCurrentPosition(mangaId, currentPage);
                 }
             }
             
@@ -1293,13 +1298,15 @@ async function saveCurrentPosition(mangaId) {
     const totalPages = document.querySelectorAll('.manga-page-container').length;
     const currentPage = getCurrentVisiblePage(); // Get the current page number from the URL
 
-    // Log the total pages for debugging
-    //console.log(`Total pages loaded: ${totalPages}, trying to save position for page: ${currentPage}`);
+    // Log the total pages and current page for debugging
+    console.log(`Total pages loaded: ${totalPages}, trying to save position for page: ${currentPage}`);
 
     // Always save the position
     if (!isRestoringPosition) { // Only save if we are not restoring
         await storeData(mangaId, currentPage);
-        //console.log(`Position saved: Manga ID: ${mangaId}, Page: ${currentPage}`);
+        console.log(`Position saved: Manga ID: ${mangaId}, Page: ${currentPage}`);
+    } else {
+        console.log(`Not saving position for Manga ID: ${mangaId} as we are restoring.`);
     }
 }
 
@@ -1673,49 +1680,6 @@ if (window.location.href.includes('/continue_reading')) {
             img.onerror = () => resolve(false);
             img.src = url;
         });
-    }
-    
-    // Helper function to check if an image URL exists
-    function checkImageExists(url) {
-        return new Promise((resolve, reject) => {
-            const img = new Image();
-            img.onload = () => resolve(true);
-            img.onerror = () => resolve(false);
-            img.src = url;
-        });
-    }
-
-    // Helper function to find a working image URL
-    async function findWorkingImageUrl(mediaId) {
-        for (const subdomain of subdomains) {
-            // Try both webp and png formats
-            const webpUrl = `https://${subdomain}.nhentai.net/galleries/${mediaId}/cover.webp`;
-            const pngUrl = `https://${subdomain}.nhentai.net/galleries/${mediaId}/cover.png`;
-            const jpgUrl = `https://${subdomain}.nhentai.net/galleries/${mediaId}/cover.jpg`;
-
-            console.log(`Trying cover image URL: ${webpUrl}`);
-            const webpExists = await checkImageExists(webpUrl);
-            if (webpExists) {
-                console.log(`Found working URL: ${webpUrl}`);
-                return webpUrl;
-            }
-
-            console.log(`Trying cover image URL: ${pngUrl}`);
-            const pngExists = await checkImageExists(pngUrl);
-            if (pngExists) {
-                console.log(`Found working URL: ${pngUrl}`);
-                return pngUrl;
-            }
-
-            console.log(`Trying cover image URL: ${jpgUrl}`);
-            const jpgExists = await checkImageExists(jpgUrl);
-            if (jpgExists) {
-                console.log(`Found working URL: ${jpgUrl}`);
-                return jpgUrl;
-            }
-        }
-        // If all fail, return the default with t3 subdomain as fallback
-        return `https://t3.nhentai.net/galleries/${mediaId}/cover.jpg`;
     }
     
 // Function to create and display the table
