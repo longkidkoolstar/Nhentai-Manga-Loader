@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Nhentai Manga Loader
 // @namespace    http://www.nhentai.net
-// @version      6.0.7
+// @version      6.0.8
 // @author       longkidkoolstar
 // @description  Loads nhentai manga chapters into one page in a long strip format with image scaling, click events, and a dark mode for reading.
 // @match        https://nhentai.net/*
@@ -567,7 +567,13 @@ function logCurrentPage() {
     const currentPage = getCurrentVisiblePage();
     const totalPages = document.querySelectorAll('.manga-page-container').length;
 
-    if ((currentPage === totalPages - 1 || currentPage === totalPages)) {
+    // Check if the Load Manga button exists
+    const loadMangaButton = document.querySelector('.load-manga-btn');
+    if (loadMangaButton) {
+        return; // Exit if the Load Manga button exists
+    }
+
+    if ((currentPage === totalPages - 1 || currentPage === totalPages) && (!isPopupVisible || freshloadedcache)) {
         //console.log(`Current page: ${currentPage}`);
         previousPage = currentPage;
         if (currentPage >= totalPages - 1) deleteMangaFromStorage();
@@ -576,48 +582,51 @@ function logCurrentPage() {
 
 function getCurrentVisiblePage() {
     const pageContainers = document.querySelectorAll('.manga-page-container');
-    let visiblePage = 0; // Default to no visible page
-    const totalPages = pageContainers.length; // Get total number of pages
-
-    // Check if the containers exist
+    let visiblePage = 0;
+    const totalPages = pageContainers.length;
+    
+    // No pages found
     if (totalPages === 0) {
         console.warn('No page containers found.');
-        return visiblePage; // Return 0 if no pages are loaded
+        return visiblePage;
     }
-
-    // Check for visible pages based on the <img> elements
+    
+    // Determine if device is mobile or desktop based on screen width
+    const isMobile = window.innerWidth <= 768; // Common breakpoint for mobile
+    
+    // Use different thresholds based on device type
+    const visibilityThreshold = isMobile ? 70 : 25; // Lower threshold for desktop
+    
     pageContainers.forEach((container, index) => {
-        const img = container.querySelector('img'); // Get the image within the container
+        const img = container.querySelector('img');
         if (img && img.alt) {
-            const pageNumber = parseInt(img.alt.replace('Page ', ''), 10); // Extract page number from alt attribute
+            const pageNumber = parseInt(img.alt.replace('Page ', ''), 10);
             const rect = img.getBoundingClientRect();
             const pageHeight = rect.bottom - rect.top;
             const visibleHeight = Math.min(window.innerHeight, rect.bottom) - Math.max(0, rect.top);
             const visiblePercentage = (visibleHeight / pageHeight) * 100;
-
-            // If the page is more than 70% visible, mark it as the current page
-            if (visiblePercentage >= 70) {
-                visiblePage = pageNumber; // Set visiblePage based on the page number from the img
+            
+            if (visiblePercentage >= visibilityThreshold) {
+                visiblePage = pageNumber;
             }
-
-            // Special case: If the last page is partially visible, save it
+            
+            // Keep the last page logic
             if (index + 1 === totalPages && visiblePercentage >= 10) {
-                visiblePage = totalPages; // Consider the last page as visible if it's more than 10% visible
+                visiblePage = totalPages;
             }
         }
     });
-
-    // If visiblePage is still 0, we can check the current URL as a fallback
+    
+    // Fallback logic remains the same
     if (visiblePage === 0) {
-        // Fallback: Parse current page number from URL if no visible page found
         const currentPageMatch = window.location.pathname.match(/\/g\/\d+\/(\d+)/);
         if (currentPageMatch) {
-            visiblePage = parseInt(currentPageMatch[1], 10); // Set visiblePage based on URL
+            visiblePage = parseInt(currentPageMatch[1], 10);
         }
     }
-
-    //console.log(`Current visible page determined: ${visiblePage}`);
-    return visiblePage; // Return the visible page number
+    
+    //console.log("Current visible page determined:", visiblePage);
+    return visiblePage;
 }
 
 
@@ -633,6 +642,7 @@ let previousPagex = 0; // Initialize previousPage at the top level
 
 window.addEventListener('scroll', async () => {
     const currentPage = getCurrentVisiblePage();
+    //console.log("current page:", currentPage, "last page", previousPagex);
     // Only save the current page if the popup is not visible and the current page is greater than the previous page
     if (!isPopupVisible || freshloadedcache) {
         if (currentPage > previousPagex) {
@@ -642,7 +652,10 @@ window.addEventListener('scroll', async () => {
         }
     }
 });
-
+// Log the state of freshloadedcache every second
+setInterval(() => {
+    console.log(`Fresh loaded cache state: ${freshloadedcache}`);
+}, 1000);
 
 
 // Load all manga images with page separators and scaling
