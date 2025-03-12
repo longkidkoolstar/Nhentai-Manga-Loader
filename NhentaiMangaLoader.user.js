@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Nhentai Manga Loader
 // @namespace    http://www.nhentai.net
-// @version      6.0.8
+// @version      6.0.9
 // @author       longkidkoolstar
 // @description  Loads nhentai manga chapters into one page in a long strip format with image scaling, click events, and a dark mode for reading.
 // @match        https://nhentai.net/*
@@ -633,7 +633,18 @@ function getCurrentVisiblePage() {
 // Function to delete manga from storage
 function deleteMangaFromStorage() {
     const mangaId = window.location.pathname.match(/\/g\/(\d+)/)[1];
-    GM.deleteValue(mangaId);
+    GM.deleteValue(mangaId); // Delete the manga entry
+
+    // Check if metadata exists before attempting to delete it
+    GM.getValue(`metadata_${mangaId}`).then(metadata => {
+        if (metadata) {
+            GM.deleteValue(`metadata_${mangaId}`); // Delete the associated metadata
+            console.log(`Metadata for manga ${mangaId} deleted from storage`);
+        } else {
+            console.log(`No metadata found for manga ${mangaId}, skipping deletion`);
+        }
+    });
+
     console.log(`Manga ${mangaId} deleted from storage`);
 }
 
@@ -1694,7 +1705,40 @@ if (window.location.href.includes('/continue_reading')) {
             img.src = url;
         });
     }
-    
+
+// Helper function to find a working image URL
+async function findWorkingImageUrl(mediaId) {
+    for (const subdomain of subdomains) {
+        // Try both webp and png formats
+        const webpUrl = `https://${subdomain}.nhentai.net/galleries/${mediaId}/cover.webp`;
+        const pngUrl = `https://${subdomain}.nhentai.net/galleries/${mediaId}/cover.png`;
+        const jpgUrl = `https://${subdomain}.nhentai.net/galleries/${mediaId}/cover.jpg`;
+
+        console.log(`Trying cover image URL: ${webpUrl}`);
+        const webpExists = await checkImageExists(webpUrl);
+        if (webpExists) {
+            console.log(`Found working URL: ${webpUrl}`);
+            return webpUrl;
+        }
+
+        console.log(`Trying cover image URL: ${pngUrl}`);
+        const pngExists = await checkImageExists(pngUrl);
+        if (pngExists) {
+            console.log(`Found working URL: ${pngUrl}`);
+            return pngUrl;
+        }
+
+        console.log(`Trying cover image URL: ${jpgUrl}`);
+        const jpgExists = await checkImageExists(jpgUrl);
+        if (jpgExists) {
+            console.log(`Found working URL: ${jpgUrl}`);
+            return jpgUrl;
+        }
+    }
+    // If all fail, return the default with t3 subdomain as fallback
+    return `https://t3.nhentai.net/galleries/${mediaId}/cover.jpg`;
+}
+
 // Function to create and display the table
 function displayMangaTable() {
     if (mangaList.length === 0) {
