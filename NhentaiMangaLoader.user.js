@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Nhentai Manga Loader
 // @namespace    http://www.nhentai.net
-// @version      6.0.9
+// @version      6.0.10
 // @author       longkidkoolstar
 // @description  Loads nhentai manga chapters into one page in a long strip format with image scaling, click events, and a dark mode for reading.
 // @match        https://nhentai.net/*
@@ -564,6 +564,16 @@ let previousPage = 0;
 
 // Function to log the current page
 function logCurrentPage() {
+    // Check if the URL matches the desired pattern
+    if (!window.location.href.match(/^https:\/\/nhentai\.net\/g\//)) {
+        return; // Exit if the URL is not correct
+    }
+
+    // Check if the download button exists
+    if (document.querySelector("#download")) {
+        return; // Exit if the download button exists
+    }
+
     const currentPage = getCurrentVisiblePage();
     const totalPages = document.querySelectorAll('.manga-page-container').length;
 
@@ -587,7 +597,7 @@ function getCurrentVisiblePage() {
     
     // No pages found
     if (totalPages === 0) {
-        console.warn('No page containers found.');
+       // console.warn('No page containers found.');
         return visiblePage;
     }
     
@@ -665,7 +675,7 @@ window.addEventListener('scroll', async () => {
 });
 // Log the state of freshloadedcache every second
 setInterval(() => {
-    console.log(`Fresh loaded cache state: ${freshloadedcache}`);
+   // console.log(`Fresh loaded cache state: ${freshloadedcache}`);
 }, 1000);
 
 
@@ -737,7 +747,7 @@ function loadMangaImages(mangaId) {
         const mangaId = extractMangaId(window.location.href);
         const currentPage = getCurrentVisiblePage(); // Get the current visible page number
         if (!isPopupVisible || freshloadedcache) {
-            console.log("load again");
+           // console.log("load again");
            // saveCurrentPosition(mangaId, currentPage);
         }
         
@@ -813,7 +823,7 @@ async function loadPage(pageNumber, pageUrl, retryCount = 0) {
         
         // Ensure position is saved for cached pages
         const currentPage = pageNumber;
-        console.log("load");
+       // console.log("load");
        // saveCurrentPosition(mangaId, currentPage); // Save the position for cached pages
         
         
@@ -950,7 +960,7 @@ function observeAndPreloadImages() {
             const mangaId = extractMangaId(window.location.href);
             const currentPage = getCurrentVisiblePage(entry); // Get the current page number
             if (!isPopupVisible || freshloadedcache) {
-                console.log("preload");
+                //console.log("preload");
                // saveCurrentPosition(mangaId, currentPage);
             }
           }
@@ -1063,7 +1073,7 @@ const observer = new IntersectionObserver((entries) => {
                 const mangaId = extractMangaId(window.location.href);
                 const currentPage = getCurrentVisiblePage(); // Get the current visible page number
                 if (!isPopupVisible || freshloadedcache) {
-                    console.log("intesect");
+                    //console.log("intesect");
                    // saveCurrentPosition(mangaId, currentPage);
                 }
             }
