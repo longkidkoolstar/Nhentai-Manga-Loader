@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Nhentai Manga Loader
 // @namespace    http://www.nhentai.net
-// @version      6.0.10
+// @version      6.0.11
 // @author       longkidkoolstar
 // @description  Loads nhentai manga chapters into one page in a long strip format with image scaling, click events, and a dark mode for reading.
 // @match        https://nhentai.net/*
@@ -1461,7 +1461,7 @@ if (window.location.href.includes('/continue_reading')) {
             padding: 20px;
             overflow-x: hidden;
             overflow-y: auto;
-            max-height: 100vh; /* Prevents it from exceeding the screen height */
+            /*max-height: 100vh; /* Prevents it from exceeding the screen height */
         }
         
         h1.continue-reading-title {
