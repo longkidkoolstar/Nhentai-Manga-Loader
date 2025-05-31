@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Nhentai Manga Loader
 // @namespace    http://www.nhentai.net
-// @version      6.0.11
+// @version      6.0.12
 // @author       longkidkoolstar
 // @description  Loads nhentai manga chapters into one page in a long strip format with image scaling, click events, and a dark mode for reading.
 // @match        https://nhentai.net/*
@@ -1806,17 +1806,28 @@ function displayMangaTable() {
         tbody.appendChild(row);
 
         // Remove manga entry from GM storage when 'X' button is clicked
-        row.querySelector('.remove-button').addEventListener('click', async function() {
+        row.querySelector('.remove-button').addEventListener('click', function() {
             const mangaId = this.getAttribute('data-id');
-            console.log(`Removing manga ID: ${mangaId}`);
+            console.log(`Attempting to remove manga ID: ${mangaId}`);
 
-            // Remove from GM storage
-            await GM.deleteValue(mangaId);
-            await GM.deleteValue(`metadata_${mangaId}`);
-            console.log(`Manga ID ${mangaId} removed from GM storage`);
-
-            // Remove row from table
-            row.remove();
+            showPopup(
+                'Are you sure you want to remove this manga from your continue watching list?',
+                {
+                    buttons: [
+                        { text: 'Yes', action: 'confirm', callback: async () => {
+                            // User confirmed, proceed with removal
+                            console.log(`Removing manga ID: ${mangaId}`);
+                            await GM.deleteValue(mangaId);
+                            await GM.deleteValue(`metadata_${mangaId}`);
+                            console.log(`Manga ID ${mangaId} removed from GM storage`);
+                            row.remove(); // Remove row from table
+                        }},
+                        { text: 'No', action: 'cancel' }
+                    ],
+                    closeButton: false, // No separate close button
+                    autoClose: false // Do not auto-close
+                }
+            );
         });
    
 
@@ -2034,3 +2045,161 @@ function displayMangaTable() {
 
 //---------------------------**Continue Reading**---------------------------------
 
+//---------------------------**Show-Popup-Function**--------------------------------
+function showPopup(message, options = {}) {
+    // Default options
+    const defaultOptions = {
+        timeout: 3000,           // Default timeout of 3 seconds
+        width: '250px',          // Default width
+        buttons: [],             // Additional buttons besides close
+        closeButton: true,       // Show close button
+        autoClose: true          // Auto close after timeout
+    };
+
+    // Merge default options with provided options
+    const settings = { ...defaultOptions, ...options };
+
+    // Create popup element
+    const popup = document.createElement('div');
+    popup.id = 'popup';
+
+    // Create buttons HTML if provided
+    let buttonsHTML = '';
+    if (settings.buttons && settings.buttons.length > 0) {
+        buttonsHTML = '<div class="popup-buttons">';
+        settings.buttons.forEach(button => {
+            buttonsHTML += `<button class="popup-btn" data-action="${button.action || ''}">${button.text}</button>`;
+        });
+        buttonsHTML += '</div>';
+    }
+
+    // Create close button HTML if enabled
+    const closeButtonHTML = settings.closeButton ?
+        '<button class="close-btn">&times;</button>' : '';
+
+    // Populate popup HTML
+    popup.innerHTML = `
+        <div class="popup-content">
+            ${closeButtonHTML}
+            <p>${message}</p>
+            ${buttonsHTML}
+        </div>
+    `;
+    document.body.appendChild(popup);
+
+    // Add CSS styling for the popup
+    const style = document.createElement('style');
+    style.textContent = `
+        #popup {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0, 0, 0, 0.9);
+            color: #fff;
+            border-radius: 5px;
+            z-index: 9999;
+            padding: 15px;
+            width: ${settings.width};
+            text-align: center;
+        }
+        .popup-content {
+            position: relative;
+            padding: 10px;
+        }
+        .close-btn {
+            position: absolute;
+            top: 5px;
+            right: 10px;
+            background: none;
+            border: none;
+            color: #fff;
+            font-size: 18px;
+            cursor: pointer;
+            transition: color 0.3s, opacity 0.3s;
+        }
+        .close-btn:hover {
+            color: #ff0000;
+            opacity: 0.7;
+        }
+        .popup-buttons {
+            margin-top: 15px;
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+        }
+        .popup-btn {
+            background: #333;
+            color: #fff;
+            border: 1px solid #555;
+            border-radius: 3px;
+            padding: 5px 10px;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+        .popup-btn:hover {
+            background: #444;
+        }
+    `;
+    document.head.appendChild(style);
+
+    // Function to close the popup
+    const closePopup = () => {
+        if (document.body.contains(popup)) {
+            document.body.removeChild(popup);
+            document.head.removeChild(style);
+        }
+    };
+
+    // Close button event listener
+    if (settings.closeButton) {
+        const closeBtn = popup.querySelector('.close-btn');
+        if (closeBtn) {
+            closeBtn.addEventListener('click', closePopup);
+        }
+    }
+
+    // Add event listeners for custom buttons
+    if (settings.buttons && settings.buttons.length > 0) {
+        const buttons = popup.querySelectorAll('.popup-btn');
+        buttons.forEach((btn, index) => {
+            btn.addEventListener('click', (e) => {
+                // Execute the callback if provided
+                if (settings.buttons[index].callback && typeof settings.buttons[index].callback === 'function') {
+                    settings.buttons[index].callback(e);
+                }
+
+                // Close the popup after button click if closeOnClick is true
+                if (settings.buttons[index].closeOnClick !== false) {
+                    closePopup();
+                }
+            });
+        });
+    }
+
+    // Auto-close the popup after the specified timeout
+    let timeoutId;
+    if (settings.autoClose && settings.timeout > 0) {
+        timeoutId = setTimeout(closePopup, settings.timeout);
+    }
+
+    // Return an object with methods to control the popup
+    return {
+        close: closePopup,
+        updateMessage: (newMessage) => {
+            const messageElement = popup.querySelector('p');
+            if (messageElement) {
+                messageElement.innerHTML = newMessage;
+            }
+        },
+        resetTimeout: () => {
+            if (timeoutId) {
+                clearTimeout(timeoutId);
+            }
+            if (settings.autoClose && settings.timeout > 0) {
+                timeoutId = setTimeout(closePopup, settings.timeout);
+            }
+        }
+    };
+}
+//---------------------------**Show-Popup-Function**--------------------------------
