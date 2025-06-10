@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Nhentai Manga Loader
 // @namespace    http://www.nhentai.net
-// @version      6.0.12
+// @version      6.1.0
 // @author       longkidkoolstar
 // @description  Loads nhentai manga chapters into one page in a long strip format with image scaling, click events, and a dark mode for reading.
 // @match        https://nhentai.net/*
@@ -24,6 +24,91 @@
     let totalImages = 0; // Track total images
     let freshloadedcache = false;
     const mangaId = extractMangaId(window.location.href);
+    
+    // Image scaling variables
+    let zoomStep = 5; // Amount to change zoom by
+    let originalZoom = 100; // Store original zoom level
+    let currentZoom = 100; // Default zoom level (100%)
+    
+    // Load saved zoom level if available
+    (async function() {
+        const savedZoom = await GM.getValue('savedZoomLevel', 100);
+        currentZoom = savedZoom;
+        originalZoom = savedZoom;
+        
+        // Apply saved zoom on page load
+        const style = document.createElement('style');
+        style.id = 'manga-zoom-style';
+        style.textContent = `.manga-page-container img { max-width: ${currentZoom}%; }`;
+        document.head.appendChild(style);
+    })();
+
+// Function to handle image scaling/zooming
+function changeImageZoom(action) {
+    // Calculate the current scroll ratio to maintain position after zoom
+    const scrollRatio = window.scrollY / document.body.scrollHeight;
+    
+    // Update zoom level based on action
+    if (action === 'increase') {
+        currentZoom += zoomStep;
+    } else if (action === 'decrease') {
+        currentZoom -= zoomStep;
+    } else if (action === 'reset') {
+        currentZoom = originalZoom;
+    } else if (action === 'apply_saved') {
+        // Just apply the current zoom level without changing it
+        // This is used when loading a saved zoom level
+    }
+    
+    // Limit zoom between 10% and 200%
+    currentZoom = Math.max(10, Math.min(currentZoom, 200));
+    
+    // Apply the zoom to all manga images
+    const style = document.createElement('style');
+    style.id = 'manga-zoom-style';
+    style.textContent = `.manga-page-container img { max-width: ${currentZoom}%; }`;
+    
+    // Remove any existing zoom style and add the new one
+    const existingStyle = document.getElementById('manga-zoom-style');
+    if (existingStyle) {
+        existingStyle.remove();
+    }
+    document.head.appendChild(style);
+    
+    // Update zoom display if it exists
+    const zoomValue = document.querySelector('.zoom-value');
+    if (zoomValue) {
+        zoomValue.textContent = `${currentZoom}%`;
+    }
+    
+    // Maintain scroll position after zoom
+    setTimeout(() => {
+        window.scrollTo(0, document.body.scrollHeight * scrollRatio);
+    }, 10);
+    
+    return currentZoom;
+}
+
+// Add keyboard shortcuts for zooming
+document.addEventListener('keydown', function(e) {
+    // Don't trigger shortcuts if user is typing in an input field
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
+        return;
+    }
+    
+    // Plus key or = key: zoom in
+    if (e.keyCode === 187 || e.keyCode === 107) { // = or numpad +
+        changeImageZoom('increase');
+    }
+    // Minus key: zoom out
+    else if (e.keyCode === 189 || e.keyCode === 109) { // - or numpad -
+        changeImageZoom('decrease');
+    }
+    // 0 key: reset zoom
+    else if (e.keyCode === 48 || e.keyCode === 96) { // 0 or numpad 0
+        changeImageZoom('reset');
+    }
+});
 
 // Add this new function to handle jumping to pages
 function handleJumpToPage(input) {
@@ -159,7 +244,33 @@ function handleJumpToPage(input) {
                 padding: 10px;
                 border-radius: 5px;
                 margin-top: 5px;
-                width: 200px;
+                width: 230px;
+            }
+            .zoom-controls {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                margin-top: 5px;
+                padding: 5px;
+                background-color: #444;
+                border-radius: 4px;
+            }
+            .zoom-button {
+                background-color: #555;
+                color: white;
+                border: none;
+                border-radius: 3px;
+                padding: 2px 8px;
+                cursor: pointer;
+                transition: background-color 0.2s;
+            }
+            .zoom-button:hover {
+                background-color: #666;
+            }
+            .zoom-value {
+                color: white;
+                font-size: 12px;
+                margin: 0 5px;
             }
         `;
         document.head.appendChild(style);
@@ -375,7 +486,7 @@ async function createStatsWindow() {
     
     // Add new jump page button
     const jumpPageButton = document.createElement('i');
-    jumpPageButton.innerHTML = '<i class="fas fa-search"></i>';
+    jumpPageButton.innerHTML = '<i class="fas fa-bullseye"></i>';
     jumpPageButton.title = 'Toggle jump to page';
     jumpPageButton.style.marginRight = '5px';
     jumpPageButton.addEventListener('click', function() {
@@ -459,6 +570,63 @@ async function createStatsWindow() {
         refreshButton.style.color = reloadMode ? 'orange' : '';
         console.log(`Reload mode is now ${reloadMode ? 'enabled' : 'disabled'}.`);
     });
+    
+    // Add new zoom button
+    const zoomButton = document.createElement('i');
+    zoomButton.innerHTML = '<i class="fas fa-search"></i>';
+    zoomButton.title = 'Adjust image scaling (Shortcuts: +/- to zoom, 0 to reset)';
+    zoomButton.style.marginRight = '5px';
+    zoomButton.addEventListener('click', function() {
+        const statsBox = document.querySelector('.ml-floating-msg');
+        
+        // If stats box is showing zoom controls, close it
+        if (statsBox.style.display === 'block' && statsBox.querySelector('strong').textContent === 'Image Scaling') {
+            statsBox.style.display = 'none';
+            return;
+        }
+        
+        // Show zoom controls
+        statsBox.style.display = 'block';
+        statsBox.innerHTML = `<strong>Image Scaling</strong>
+<div class="zoom-controls">
+    <button class="zoom-button zoom-out">-</button>
+    <span class="zoom-value">${currentZoom}%</span>
+    <button class="zoom-button zoom-in">+</button>
+</div>
+<button class="zoom-button zoom-save" style="width: 100%; margin-top: 5px;">Save Zoom Level</button>
+<button class="zoom-button zoom-reset" style="width: 100%; margin-top: 5px;">Reset Zoom</button>
+<div style="font-size: 11px; margin-top: 5px; color: #aaa;">Keyboard: +/- to zoom, 0 to reset</div>`;
+        
+        // Add event listeners to zoom buttons
+        statsBox.querySelector('.zoom-in').addEventListener('click', () => {
+            changeImageZoom('increase');
+        });
+        
+        statsBox.querySelector('.zoom-out').addEventListener('click', () => {
+            changeImageZoom('decrease');
+        });
+        
+        statsBox.querySelector('.zoom-save').addEventListener('click', async () => {
+            await GM.setValue('savedZoomLevel', currentZoom);
+            originalZoom = currentZoom; // Update original zoom to saved value
+            
+            // Show confirmation message
+            const saveButton = statsBox.querySelector('.zoom-save');
+            const originalText = saveButton.textContent;
+            saveButton.textContent = 'Saved!';
+            saveButton.style.backgroundColor = '#4CAF50';
+            
+            // Reset button text after 1.5 seconds
+            setTimeout(() => {
+                saveButton.textContent = originalText;
+                saveButton.style.backgroundColor = '';
+            }, 1500);
+        });
+        
+        statsBox.querySelector('.zoom-reset').addEventListener('click', () => {
+            changeImageZoom('reset');
+        });
+    });
 
 // Add the mini exit button for refreshing the page
 const miniExitButton = document.createElement('button');
@@ -482,6 +650,7 @@ miniExitButton.addEventListener('click', function() {
     contentContainer.appendChild(infoButton);
     contentContainer.appendChild(moreStatsButton);
     contentContainer.appendChild(jumpPageButton); // Add the new button
+    contentContainer.appendChild(zoomButton); // Add the zoom button
     contentContainer.appendChild(refreshButton);
     contentContainer.appendChild(miniExitButton);
 

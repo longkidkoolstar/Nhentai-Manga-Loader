@@ -5,7 +5,7 @@ The **Nhentai Manga Loader** is a userscript designed to enhance your reading ex
 
 ## Features
 - **Seamless Viewing**: Load all manga pages in a continuous strip without interruptions.
-- **Image Scaling**: Click on images to toggle between full size and scaled views.
+- **Image Scaling & Persistence**: Adjust image scaling with buttons or keyboard shortcuts, and save your preferred zoom level to be applied automatically across all manga.
 - **Navigation**: Easy page counter and exit button for quick access to navigation.
 - **Custom Styles**: Designed with a clean and visually appealing layout.
 - **Continue Reading**: Automatically saves your reading progress and provides a convenient list of all manga you've started reading, allowing you to easily pick up where you left off.
