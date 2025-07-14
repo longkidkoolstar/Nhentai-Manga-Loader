@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Nhentai Manga Loader
 // @namespace    http://www.nhentai.net
-// @version      6.1.0
+// @version      6.2.0
 // @author       longkidkoolstar
 // @description  Loads nhentai manga chapters into one page in a long strip format with image scaling, click events, and a dark mode for reading.
 // @match        https://nhentai.net/*
@@ -755,9 +755,104 @@ function logCurrentPage() {
     if ((currentPage === totalPages - 1 || currentPage === totalPages) && (!isPopupVisible || freshloadedcache)) {
         //console.log(`Current page: ${currentPage}`);
         previousPage = currentPage;
-        if (currentPage >= totalPages - 1) deleteMangaFromStorage();
+        if (currentPage >= totalPages - 1) {
+            saveFinishedManga(mangaId);
+            deleteMangaFromStorage();
+        }
     }
 }
+async function saveFinishedManga(mangaId) {
+    try {
+        const metadataKey = `metadata_${mangaId}`;
+        const cachedMetadata = await GM.getValue(metadataKey, null);
+        let mangaTitle, coverImageUrl, languageDisplay;
+
+        if (cachedMetadata) {
+            const metadata = JSON.parse(cachedMetadata);
+            mangaTitle = metadata.title;
+            coverImageUrl = metadata.coverImageUrl;
+            languageDisplay = metadata.languageDisplay;
+        } else {
+            // Fallback: if metadata not cached, try to fetch
+            const response = await fetch(`https://nhentai.net/api/gallery/${mangaId}`);
+            const data = await response.json();
+            if (data) {
+                mangaTitle = data.title.english;
+                const mediaId = data.media_id;
+                
+                // Inline image URL finding logic
+                const subdomains = ['i1', 'i2', 'i3', 'i4', 'i5', 'i7', 't1', 't2', 't3', 't4', 't5', 't7'];
+                const formats = ['webp', 'png', 'jpg'];
+                
+                coverImageUrl = null;
+                findImage: for (const subdomain of subdomains) {
+                    for (const format of formats) {
+                        const testUrl = `https://${subdomain}.nhentai.net/galleries/${mediaId}/cover.${format}`;
+                        
+                        // Inline image existence check
+                        const exists = await new Promise((resolve) => {
+                            const img = new Image();
+                            img.onload = () => resolve(true);
+                            img.onerror = () => resolve(false);
+                            img.src = testUrl;
+                        });
+                        
+                        if (exists) {
+                            coverImageUrl = testUrl;
+                            break findImage;
+                        }
+                    }
+                }
+                
+                // Fallback if no image found
+                if (!coverImageUrl) {
+                    coverImageUrl = `https://t3.nhentai.net/galleries/${mediaId}/cover.jpg`;
+                }
+                
+                // Language processing
+                const languages = data.tags.filter(tag => tag.type === 'language').map(tag => tag.name.toLowerCase());
+                
+                if (languages.includes('english')) {
+                    languageDisplay = 'English';
+                } else if (languages.includes('translated') && languages.length === 1) {
+                    languageDisplay = 'English';
+                } else if (languages.includes('translated') && languages.length > 1) {
+                    const otherLanguages = languages.filter(lang => lang !== 'translated');
+                    languageDisplay = otherLanguages.length > 0 ? otherLanguages.map(lang => lang.charAt(0).toUpperCase() + lang.slice(1)).join(', ') : 'Unknown';
+                } else {
+                    languageDisplay = languages.map(lang => lang.charAt(0).toUpperCase() + lang.slice(1)).join(', ');
+                }
+            }
+        }
+
+        if (mangaTitle && coverImageUrl && languageDisplay) {
+            const finishedManga = {
+                id: mangaId,
+                title: mangaTitle,
+                coverImageUrl: coverImageUrl,
+                language: languageDisplay
+            };
+
+            let justRead = JSON.parse(localStorage.getItem('justRead')) || [];
+
+            // Check for duplicates before adding
+            const isDuplicate = justRead.some(manga => manga.id === mangaId);
+            if (!isDuplicate) {
+                justRead.push(finishedManga);
+                localStorage.setItem('justRead', JSON.stringify(justRead));
+                console.log(`Manga ${mangaId} added to justRead list.`);
+            } else {
+                console.log(`Manga ${mangaId} already in justRead list.`);
+            }
+        } else {
+            console.warn(`Could not get full metadata for manga ${mangaId}. Not saving to justRead.`);
+        }
+    } catch (error) {
+        console.error(`Error saving finished manga ${mangaId}:`, error);
+    }
+}
+
+
 
 function getCurrentVisiblePage() {
     const pageContainers = document.querySelectorAll('.manga-page-container');
