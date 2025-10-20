@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Nhentai Manga Loader
 // @namespace    http://www.nhentai.net
-// @version      6.2.1
+// @version      6.3.0
 // @author       longkidkoolstar
 // @description  Loads nhentai manga chapters into one page in a long strip format with image scaling, click events, and a dark mode for reading.
 // @match        https://nhentai.net/*
@@ -628,6 +628,84 @@ async function createStatsWindow() {
         });
     });
 
+    // Add settings button for batch size and auto-load
+    const settingsButton = document.createElement('i');
+    settingsButton.innerHTML = '<i class="fas fa-cog"></i>';
+    settingsButton.title = 'Loading settings';
+    settingsButton.style.marginRight = '5px';
+    settingsButton.style.marginLeft = '7px';
+    settingsButton.addEventListener('click', async function() {
+        const statsBox = document.querySelector('.ml-floating-msg');
+
+        // Toggle close if settings are already open
+        if (statsBox.style.display === 'block' && statsBox.querySelector('strong') && statsBox.querySelector('strong').textContent === 'Loading Settings') {
+            statsBox.style.display = 'none';
+            return;
+        }
+
+        const savedBatch = await GM.getValue('batchSize', 10);
+        const savedAuto = await GM.getValue('autoLoadBatches', true);
+        const savedLoadAll = await GM.getValue('loadAllBatches', false);
+        statsBox.style.display = 'block';
+        statsBox.innerHTML = `<strong>Loading Settings</strong>
+<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 6px;">
+  <label>Batch size</label>
+  <input type=\"number\" class=\"ml-setting-batch\" min=\"1\" max=\"100\" value=\"${savedBatch}\" ${savedLoadAll ? 'disabled' : ''}>
+  <label>Auto-load next batch</label>
+  <input type=\"checkbox\" class=\"ml-setting-autoload\" ${savedAuto ? 'checked' : ''} ${savedLoadAll ? 'disabled' : ''}>
+  <label>Load everything</label>
+  <input type=\"checkbox\" class=\"ml-setting-loadall\" ${savedLoadAll ? 'checked' : ''}>
+</div>
+<div style=\"font-size: 11px; margin-top: 6px; color: #aaa;\">When \"Load everything\" is enabled,<br>batch size and auto-load are ignored.</div>
+<button class=\"ml-setting-save\" style=\"margin-top: 8px;\">Save</button>`;
+
+        const saveBtn = statsBox.querySelector('.ml-setting-save');
+        // Theme styling for the Save button
+        saveBtn.style.cssText = `
+            background-color: #ed2553;
+            color: #fff;
+            border: none;
+            border-radius: 4px;
+            padding: 6px 10px;
+            cursor: pointer;
+            transition: background-color 0.2s, transform 0.05s;
+            width: 100%;
+            margin-top: 8px;
+            text-align: center;
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
+        `;
+        saveBtn.addEventListener('mouseenter', () => {
+            saveBtn.style.backgroundColor = '#c91c45';
+        });
+        saveBtn.addEventListener('mouseleave', () => {
+            saveBtn.style.backgroundColor = '#ed2553';
+        });
+
+        // Toggle disable state when "Load everything" changes
+        const batchInput = statsBox.querySelector('.ml-setting-batch');
+        const autoInput = statsBox.querySelector('.ml-setting-autoload');
+        const loadAllCtrl = statsBox.querySelector('.ml-setting-loadall');
+        if (loadAllCtrl) {
+            loadAllCtrl.addEventListener('change', () => {
+                const isAll = loadAllCtrl.checked;
+                if (batchInput) batchInput.disabled = isAll;
+                if (autoInput) autoInput.disabled = isAll;
+            });
+        }
+ 
+        saveBtn.addEventListener('click', async () => {
+            const batchVal = parseInt(statsBox.querySelector('.ml-setting-batch')?.value, 10) || 10;
+            const autoVal = !!statsBox.querySelector('.ml-setting-autoload')?.checked;
+            const loadAllVal = !!statsBox.querySelector('.ml-setting-loadall')?.checked;
+            await GM.setValue('batchSize', Math.max(1, Math.min(100, batchVal)));
+            await GM.setValue('autoLoadBatches', autoVal);
+            await GM.setValue('loadAllBatches', loadAllVal);
+            saveBtn.textContent = 'Saved!';
+            saveBtn.style.backgroundColor = '#4CAF50';
+            setTimeout(() => { statsBox.style.display = 'none'; }, 1200);
+        });
+    });
+
 // Add the mini exit button for refreshing the page
 const miniExitButton = document.createElement('button');
 miniExitButton.innerHTML = '<i class="fas fa-sign-out-alt"></i>';  // Font Awesome icon for sign out
@@ -652,6 +730,7 @@ miniExitButton.addEventListener('click', function() {
     contentContainer.appendChild(jumpPageButton); // Add the new button
     contentContainer.appendChild(zoomButton); // Add the zoom button
     contentContainer.appendChild(refreshButton);
+    contentContainer.appendChild(settingsButton); // Add settings button
     contentContainer.appendChild(miniExitButton);
 
     statsWrapper.appendChild(collapseButton);
@@ -946,7 +1025,7 @@ setInterval(() => {
 
 
 // Load all manga images with page separators and scaling
-function loadMangaImages(mangaId) {
+async function loadMangaImages(mangaId) {
     hideElements();
     createStatsWindow(); // Create the stats window
 
@@ -965,9 +1044,60 @@ function loadMangaImages(mangaId) {
     const initialPage = parseInt(window.location.href.match(/\/g\/\d+\/(\d+)/)[1]);
     let currentPage = initialPage;
 
+    // Batch loading configuration
+    const userBatchSize = await GM.getValue('batchSize', 10);
+    const autoLoadBatches = await GM.getValue('autoLoadBatches', true);
+    const loadAllBatches = await GM.getValue('loadAllBatches', false);
+    const batchSize = Math.max(1, Math.min(100, parseInt(userBatchSize, 10) || 10));
+
+    let lastLoadedPage = 0; // track highest page fully loaded into DOM
+    let targetBatchEnd = null; // inclusive page number for current batch
+    let nextBatchStartLink = null; // href to begin next batch when user clicks Load More
+    let loadMoreEl = null; // UI element at strip end for triggering more
+
     // Queue for tracking loading images
     const loadingQueue = [];
     const maxConcurrentLoads = /Mobi/.test(navigator.userAgent) ? 10 : 40; // Maximum number of concurrent image loads
+
+    // Create/attach a sentinel UI that lets user load more
+    function ensureLoadMoreControl() {
+        if (loadAllBatches || loadMoreEl) return;
+        loadMoreEl = document.createElement('div');
+        loadMoreEl.className = 'ml-load-more';
+        loadMoreEl.style.cssText = 'display:flex;align-items:center;justify-content:center;margin:16px 0;padding:10px;border-radius:6px;background:#333;color:#fff;cursor:pointer;user-select:none;';
+        loadMoreEl.textContent = `Load more (${batchSize})`;
+        loadMoreEl.addEventListener('click', () => {
+            startNextBatch();
+        });
+        mangaContainer.appendChild(loadMoreEl);
+
+        if (autoLoadBatches) {
+            const sentinelObserver = new IntersectionObserver((entries) => {
+                entries.forEach((entry) => {
+                    if (entry.isIntersecting) {
+                        startNextBatch();
+                        sentinelObserver.disconnect();
+                    }
+                });
+            }, { rootMargin: '150px 0px', threshold: 0.1 });
+            sentinelObserver.observe(loadMoreEl);
+        }
+    }
+
+    function removeLoadMoreControl() {
+        if (loadMoreEl && loadMoreEl.parentNode) {
+            loadMoreEl.parentNode.removeChild(loadMoreEl);
+        }
+        loadMoreEl = null;
+    }
+
+    function startNextBatch() {
+        if (!nextBatchStartLink) return;
+        removeLoadMoreControl();
+        targetBatchEnd = Math.min(totalPages, lastLoadedPage + batchSize);
+        loadingQueue.push({ pageNumber: lastLoadedPage + 1, pageUrl: nextBatchStartLink });
+        processQueue();
+    }
 
     // Helper to create the page container with images
     function createPageContainer(pageNumber, imgSrc) {
@@ -1003,6 +1133,7 @@ function loadMangaImages(mangaId) {
         addErrorHandlingToImage(img, imgSrc, pageNumber);
         addClickEventToImage(img);
         mangaContainer.appendChild(container);
+        lastLoadedPage = Math.max(lastLoadedPage, pageNumber);
 
         loadedPages++; // Increment loaded pages count
         updateStats(); // Update stats display
@@ -1018,8 +1149,10 @@ function loadMangaImages(mangaId) {
         }
         
 
-        // Start loading the actual image
-        img.src = imgSrc; // Set the src to load the image
+        // Start loading the actual image for current batch only
+        if (targetBatchEnd && pageNumber <= targetBatchEnd) {
+            img.src = imgSrc; // Load immediately within batch
+        }
 
         // Mark as loaded on load
         img.onload = () => {
@@ -1097,10 +1230,13 @@ async function loadPage(pageNumber, pageUrl, retryCount = 0) {
         loadingImages--;
         updateStats(); // Update loading images count
 
-        // Pre-fetch the next page if it's not the last page
-        if (pageNumber < totalPages && cachedImage.nextLink) {
+        // Queue next page only within current batch, else set up for next batch
+        if (pageNumber < targetBatchEnd && cachedImage.nextLink) {
             loadingQueue.push({ pageNumber: pageNumber + 1, pageUrl: cachedImage.nextLink });
-            processQueue(); // Check the queue
+            processQueue();
+        } else if (pageNumber === targetBatchEnd && cachedImage.nextLink) {
+            nextBatchStartLink = cachedImage.nextLink;
+            if (!loadAllBatches) ensureLoadMoreControl();
         }
         return;
     }
@@ -1139,10 +1275,13 @@ async function loadPage(pageNumber, pageUrl, retryCount = 0) {
         loadingImages--;
         updateStats(); // Update loading images count
 
-        // Pre-fetch the next page once the current one loads
-        if (pageNumber < totalPages && nextLink) {
+        // Queue next page only within current batch, else set up for next batch
+        if (pageNumber < targetBatchEnd && nextLink) {
             loadingQueue.push({ pageNumber: pageNumber + 1, pageUrl: nextLink });
-            processQueue(); // Check the queue
+            processQueue();
+        } else if (pageNumber === targetBatchEnd && nextLink) {
+            nextBatchStartLink = nextLink;
+            if (!loadAllBatches) ensureLoadMoreControl();
         }
     } catch (err) {
         loadingImages--;
@@ -1196,16 +1335,24 @@ const retryDelay = 5000; // Delay in milliseconds before retrying only on 429 st
 
 
 
+// Establish initial batch boundary
+targetBatchEnd = loadAllBatches ? totalPages : Math.min(totalPages, currentPage + batchSize - 1);
+
 const firstImageElement = document.querySelector('#image-container > a > img');
 const firstImgSrc = firstImageElement.getAttribute('data-src') || firstImageElement.src;
 createPageContainer(currentPage, firstImgSrc);
 
 const firstImageLink = document.querySelector('#image-container > a').href;
-loadingQueue.push({ pageNumber: currentPage + 1, pageUrl: firstImageLink }); // Add to queue
-processQueue(); // Start processing the queue
+if (currentPage < targetBatchEnd) {
+    loadingQueue.push({ pageNumber: currentPage + 1, pageUrl: firstImageLink });
+    processQueue();
+} else {
+    nextBatchStartLink = firstImageLink;
+    if (!loadAllBatches) ensureLoadMoreControl();
+}
 
 // Observe all image containers for lazy loading
-observeAndPreloadImages(); // <-- Add this here to track and lazy-load images
+observeAndPreloadImages();
 
 exitButtonTop.addEventListener('click', function() {
     window.location.reload();
