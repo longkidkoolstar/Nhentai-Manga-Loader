@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Nhentai Manga Loader
 // @namespace    http://www.nhentai.net
-// @version      6.3.0
+// @version      6.3.1
 // @author       longkidkoolstar
 // @description  Loads nhentai manga chapters into one page in a long strip format with image scaling, click events, and a dark mode for reading.
 // @match        https://nhentai.net/*
@@ -409,15 +409,18 @@ function getCurrentPage(entry) {
     function updateStats() {
         const statsContainer = document.querySelector('.ml-stats-pages');
         const statsBox = document.querySelector('.ml-floating-msg');
-        if (statsBox && !statsBox.querySelector('.jump-controls')) {
+
+        // Always update the header counter, even while settings are open
+        if (statsContainer) {
+            statsContainer.textContent = `${loadedPages}/${totalPages} loaded`;
+        }
+
+        // Only rewrite the floating stats box when not in settings mode
+        if (statsBox && !statsBox.querySelector('.jump-controls') && statsBox.dataset.mode !== 'settings') {
             statsBox.innerHTML = `<strong>Stats:</strong>
 <span class="ml-loading-images">${loadingImages} images loading</span>
 <span class="ml-total-images">${totalImages} images in chapter</span>
 <span class="ml-loaded-pages">${loadedPages} pages parsed</span>`;
-
-if (statsContainer) {
-    statsContainer.textContent = `${loadedPages}/${totalPages} loaded`;
-}
         }
     }
 
@@ -638,8 +641,9 @@ async function createStatsWindow() {
         const statsBox = document.querySelector('.ml-floating-msg');
 
         // Toggle close if settings are already open
-        if (statsBox.style.display === 'block' && statsBox.querySelector('strong') && statsBox.querySelector('strong').textContent === 'Loading Settings') {
+        if (statsBox && (statsBox.dataset.mode === 'settings' || (statsBox.style.display === 'block' && statsBox.querySelector('strong') && statsBox.querySelector('strong').textContent === 'Loading Settings'))) {
             statsBox.style.display = 'none';
+            delete statsBox.dataset.mode;
             return;
         }
 
@@ -647,6 +651,7 @@ async function createStatsWindow() {
         const savedAuto = await GM.getValue('autoLoadBatches', true);
         const savedLoadAll = await GM.getValue('loadAllBatches', false);
         statsBox.style.display = 'block';
+        statsBox.dataset.mode = 'settings';
         statsBox.innerHTML = `<strong>Loading Settings</strong>
 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 6px;">
   <label>Batch size</label>
@@ -702,7 +707,7 @@ async function createStatsWindow() {
             await GM.setValue('loadAllBatches', loadAllVal);
             saveBtn.textContent = 'Saved!';
             saveBtn.style.backgroundColor = '#4CAF50';
-            setTimeout(() => { statsBox.style.display = 'none'; }, 1200);
+            setTimeout(() => { statsBox.style.display = 'none'; delete statsBox.dataset.mode; }, 1200);
         });
     });
 
