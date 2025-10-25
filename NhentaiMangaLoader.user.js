@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Nhentai Manga Loader
 // @namespace    http://www.nhentai.net
-// @version      6.3.1
+// @version      6.3.2
 // @author       longkidkoolstar
 // @description  Loads nhentai manga chapters into one page in a long strip format with image scaling, click events, and a dark mode for reading.
 // @match        https://nhentai.net/*
@@ -851,88 +851,119 @@ async function saveFinishedManga(mangaId) {
     try {
         const metadataKey = `metadata_${mangaId}`;
         const cachedMetadata = await GM.getValue(metadataKey, null);
-        let mangaTitle, coverImageUrl, languageDisplay;
 
+        // Prepare immediate placeholder values
+        let mangaTitle = 'Unknown';
+        let languageDisplay = 'Unknown';
         if (cachedMetadata) {
             const metadata = JSON.parse(cachedMetadata);
-            mangaTitle = metadata.title;
-            coverImageUrl = metadata.coverImageUrl;
-            languageDisplay = metadata.languageDisplay;
-        } else {
-            // Fallback: if metadata not cached, try to fetch
-            const response = await fetch(`https://nhentai.net/api/gallery/${mangaId}`);
-            const data = await response.json();
-            if (data) {
-                mangaTitle = data.title.english;
-                const mediaId = data.media_id;
-                
-                // Inline image URL finding logic
-                const subdomains = ['i1', 'i2', 'i3', 'i4', 'i5', 'i7', 't1', 't2', 't3', 't4', 't5', 't7'];
-                const formats = ['webp', 'png', 'jpg'];
-                
-                coverImageUrl = null;
-                findImage: for (const subdomain of subdomains) {
-                    for (const format of formats) {
-                        const testUrl = `https://${subdomain}.nhentai.net/galleries/${mediaId}/cover.${format}`;
-                        
-                        // Inline image existence check
-                        const exists = await new Promise((resolve) => {
-                            const img = new Image();
-                            img.onload = () => resolve(true);
-                            img.onerror = () => resolve(false);
-                            img.src = testUrl;
-                        });
-                        
-                        if (exists) {
-                            coverImageUrl = testUrl;
-                            break findImage;
-                        }
-                    }
-                }
-                
-                // Fallback if no image found
-                if (!coverImageUrl) {
-                    coverImageUrl = `https://t3.nhentai.net/galleries/${mediaId}/cover.jpg`;
-                }
-                
-                // Language processing
-                const languages = data.tags.filter(tag => tag.type === 'language').map(tag => tag.name.toLowerCase());
-                
-                if (languages.includes('english')) {
-                    languageDisplay = 'English';
-                } else if (languages.includes('translated') && languages.length === 1) {
-                    languageDisplay = 'English';
-                } else if (languages.includes('translated') && languages.length > 1) {
-                    const otherLanguages = languages.filter(lang => lang !== 'translated');
-                    languageDisplay = otherLanguages.length > 0 ? otherLanguages.map(lang => lang.charAt(0).toUpperCase() + lang.slice(1)).join(', ') : 'Unknown';
-                } else {
-                    languageDisplay = languages.map(lang => lang.charAt(0).toUpperCase() + lang.slice(1)).join(', ');
-                }
-            }
+            mangaTitle = metadata.title || mangaTitle;
+            languageDisplay = metadata.languageDisplay || languageDisplay;
         }
 
-        if (mangaTitle && coverImageUrl && languageDisplay) {
-            const finishedManga = {
+        const tempCoverSVG = `<svg xmlns="http://www.w3.org/2000/svg" width="80" height="120"><rect width="100%" height="100%" fill="#777"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-size="14" fill="#fff">Cover</text></svg>`;
+        const tempCoverImageUrl = `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(tempCoverSVG)}`;
+
+        // Save justRead immediately with placeholder cover
+        let justRead = JSON.parse(localStorage.getItem('justRead')) || [];
+        const existingIndex = justRead.findIndex(manga => manga.id === mangaId);
+        if (existingIndex === -1) {
+            const placeholderEntry = {
                 id: mangaId,
                 title: mangaTitle,
-                coverImageUrl: coverImageUrl,
+                coverImageUrl: tempCoverImageUrl,
                 language: languageDisplay
             };
-
-            let justRead = JSON.parse(localStorage.getItem('justRead')) || [];
-
-            // Check for duplicates before adding
-            const isDuplicate = justRead.some(manga => manga.id === mangaId);
-            if (!isDuplicate) {
-                justRead.push(finishedManga);
-                localStorage.setItem('justRead', JSON.stringify(justRead));
-                console.log(`Manga ${mangaId} added to justRead list.`);
-            } else {
-                console.log(`Manga ${mangaId} already in justRead list.`);
-            }
+            justRead.push(placeholderEntry);
+            localStorage.setItem('justRead', JSON.stringify(justRead));
+            console.log(`Manga ${mangaId} added to justRead with temporary cover.`);
         } else {
-            console.warn(`Could not get full metadata for manga ${mangaId}. Not saving to justRead.`);
+            // Ensure a cover exists even if previous entry lacked one
+            if (!justRead[existingIndex].coverImageUrl) {
+                justRead[existingIndex].coverImageUrl = tempCoverImageUrl;
+                localStorage.setItem('justRead', JSON.stringify(justRead));
+            }
         }
+
+        // Background: fetch real metadata and update justRead entry
+        (async () => {
+            let coverImageUrl = null;
+            try {
+                const response = await fetch(`https://nhentai.net/api/gallery/${mangaId}`);
+                const data = await response.json();
+                if (data) {
+                    mangaTitle = data.title.english || mangaTitle;
+                    const mediaId = data.media_id;
+
+                    // Find a working cover image URL
+                    const subdomains = ['i1', 'i2', 'i3', 'i4', 'i5', 'i7', 't1', 't2', 't3', 't4', 't5', 't7'];
+                    const formats = ['webp', 'png', 'jpg'];
+                    coverImageUrl = null;
+                    findImage: for (const subdomain of subdomains) {
+                        for (const format of formats) {
+                            const testUrl = `https://${subdomain}.nhentai.net/galleries/${mediaId}/cover.${format}`;
+                            const exists = await new Promise((resolve) => {
+                                const img = new Image();
+                                img.onload = () => resolve(true);
+                                img.onerror = () => resolve(false);
+                                img.src = testUrl;
+                            });
+                            if (exists) {
+                                coverImageUrl = testUrl;
+                                break findImage;
+                            }
+                        }
+                    }
+                    if (!coverImageUrl) {
+                        coverImageUrl = `https://t3.nhentai.net/galleries/${mediaId}/cover.jpg`;
+                    }
+
+                    // Language processing
+                    const languages = data.tags.filter(tag => tag.type === 'language').map(tag => tag.name.toLowerCase());
+                    if (languages.includes('english')) {
+                        languageDisplay = 'English';
+                    } else if (languages.includes('translated') && languages.length === 1) {
+                        languageDisplay = 'English';
+                    } else if (languages.includes('translated') && languages.length > 1) {
+                        const otherLanguages = languages.filter(lang => lang !== 'translated');
+                        languageDisplay = otherLanguages.length > 0 ? otherLanguages.map(lang => lang.charAt(0).toUpperCase() + lang.slice(1)).join(', ') : 'Unknown';
+                    } else {
+                        languageDisplay = languages.map(lang => lang.charAt(0).toUpperCase() + lang.slice(1)).join(', ');
+                    }
+                }
+            } catch (e) {
+                console.warn(`Background fetch failed for manga ${mangaId}`, e);
+            }
+
+            // Update justRead entry with real metadata if available
+            try {
+                let justReadUpdate = JSON.parse(localStorage.getItem('justRead')) || [];
+                const idx = justReadUpdate.findIndex(manga => manga.id === mangaId);
+                if (idx !== -1) {
+                    const updated = {
+                        ...justReadUpdate[idx],
+                        title: mangaTitle || justReadUpdate[idx].title,
+                        coverImageUrl: coverImageUrl || justReadUpdate[idx].coverImageUrl,
+                        language: languageDisplay || justReadUpdate[idx].language
+                    };
+                    justReadUpdate[idx] = updated;
+                    localStorage.setItem('justRead', JSON.stringify(justReadUpdate));
+                    console.log(`Updated justRead for manga ${mangaId} with final metadata.`);
+                }
+
+                // Cache metadata for reuse if all fields present
+                if (mangaTitle && coverImageUrl && languageDisplay) {
+                    await GM.setValue(metadataKey, JSON.stringify({
+                        title: mangaTitle,
+                        coverImageUrl,
+                        languageDisplay
+                    }));
+                }
+            } catch (err) {
+                console.warn(`Failed to update justRead/metadata for ${mangaId}`, err);
+            }
+        })();
+
     } catch (error) {
         console.error(`Error saving finished manga ${mangaId}:`, error);
     }
@@ -2460,6 +2491,114 @@ function displayMangaTable() {
     // Start the process
     getStoredManga();
 }
+
+// Resolve incomplete justRead metadata across pages
+function resolveJustReadMetadata() {
+    try {
+        const raw = localStorage.getItem('justRead');
+        if (!raw) return;
+        const list = JSON.parse(raw) || [];
+        const needsUpdate = list.filter(m => {
+            const isPlaceholderCover = !m.coverImageUrl || (typeof m.coverImageUrl === 'string' && m.coverImageUrl.startsWith('data:image'));
+            const unknownTitle = !m.title || m.title === 'Unknown';
+            const unknownLang = !m.language || m.language === 'Unknown';
+            return isPlaceholderCover || unknownTitle || unknownLang;
+        });
+        if (needsUpdate.length === 0) return;
+
+        needsUpdate.forEach(async (m) => {
+            const metadataKey = `metadata_${m.id}`;
+            try {
+                const cached = await GM.getValue(metadataKey, null);
+                let title = m.title;
+                let languageDisplay = m.language;
+                let coverImageUrl = m.coverImageUrl;
+
+                if (cached) {
+                    const meta = JSON.parse(cached);
+                    title = meta.title || title;
+                    coverImageUrl = meta.coverImageUrl || coverImageUrl;
+                    languageDisplay = meta.languageDisplay || languageDisplay;
+                } else {
+                    const resp = await fetch(`https://nhentai.net/api/gallery/${m.id}`);
+                    const data = await resp.json();
+                    if (data) {
+                        title = data.title?.english || title;
+                        const mediaId = data.media_id;
+                        // Resolve cover: use helper if available, else fallback
+                        let workingCover = null;
+                        try {
+                            if (typeof findWorkingImageUrl === 'function') {
+                                workingCover = await findWorkingImageUrl(mediaId);
+                            }
+                        } catch (_) {
+                            // ignore and fallback
+                        }
+                        if (!workingCover) {
+                            // Fallback across broader subdomains and formats
+                            const subdomainsAll = ['i1', 'i2', 'i3', 'i4', 'i5', 'i7', 't1', 't2', 't3', 't4', 't5', 't7'];
+                            const formats = ['webp', 'png', 'jpg'];
+                            for (const sub of subdomainsAll) {
+                                for (const fmt of formats) {
+                                    const url = `https://${sub}.nhentai.net/galleries/${mediaId}/cover.${fmt}`;
+                                    const ok = await new Promise((resolve) => {
+                                        const img = new Image();
+                                        img.onload = () => resolve(true);
+                                        img.onerror = () => resolve(false);
+                                        img.src = url;
+                                    });
+                                    if (ok) { workingCover = url; break; }
+                                }
+                                if (workingCover) break;
+                            }
+                        }
+                        coverImageUrl = workingCover || coverImageUrl;
+
+                        // Language processing
+                        const languages = data.tags.filter(t => t.type === 'language').map(t => t.name.toLowerCase());
+                        if (languages.includes('english')) {
+                            languageDisplay = 'English';
+                        } else if (languages.includes('translated') && languages.length === 1) {
+                            languageDisplay = 'English';
+                        } else if (languages.includes('translated') && languages.length > 1) {
+                            const other = languages.filter(l => l !== 'translated');
+                            languageDisplay = other.length > 0 ? other.map(l => l.charAt(0).toUpperCase() + l.slice(1)).join(', ') : 'Unknown';
+                        } else {
+                            languageDisplay = languages.map(l => l.charAt(0).toUpperCase() + l.slice(1)).join(', ');
+                        }
+
+                        // Cache metadata
+                        await GM.setValue(metadataKey, JSON.stringify({
+                            title,
+                            coverImageUrl,
+                            languageDisplay
+                        }));
+                    }
+                }
+
+                // Persist back to justRead
+                const existingList = JSON.parse(localStorage.getItem('justRead')) || [];
+                const idx = existingList.findIndex(x => x.id === m.id);
+                if (idx !== -1) {
+                    existingList[idx] = {
+                        ...existingList[idx],
+                        title,
+                        coverImageUrl,
+                        language: languageDisplay
+                    };
+                    localStorage.setItem('justRead', JSON.stringify(existingList));
+                }
+            } catch (err) {
+                console.warn(`Failed resolving justRead metadata for ${m.id}`, err);
+            }
+        });
+    } catch (e) {
+        console.warn('resolveJustReadMetadata encountered an error', e);
+    }
+}
+
+// Run resolver on every page load
+resolveJustReadMetadata();
 
 //---------------------------**Continue Reading**---------------------------------
 
