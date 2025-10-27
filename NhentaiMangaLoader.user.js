@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Nhentai Manga Loader
 // @namespace    http://www.nhentai.net
-// @version      6.3.2
+// @version      6.3.3
 // @author       longkidkoolstar
 // @description  Loads nhentai manga chapters into one page in a long strip format with image scaling, click events, and a dark mode for reading.
 // @match        https://nhentai.net/*
@@ -876,12 +876,14 @@ async function saveFinishedManga(mangaId) {
             };
             justRead.push(placeholderEntry);
             localStorage.setItem('justRead', JSON.stringify(justRead));
+            await GM.setValue('justRead', JSON.stringify(justRead));
             console.log(`Manga ${mangaId} added to justRead with temporary cover.`);
         } else {
             // Ensure a cover exists even if previous entry lacked one
             if (!justRead[existingIndex].coverImageUrl) {
                 justRead[existingIndex].coverImageUrl = tempCoverImageUrl;
                 localStorage.setItem('justRead', JSON.stringify(justRead));
+                await GM.setValue('justRead', JSON.stringify(justRead));
             }
         }
 
@@ -948,6 +950,7 @@ async function saveFinishedManga(mangaId) {
                     };
                     justReadUpdate[idx] = updated;
                     localStorage.setItem('justRead', JSON.stringify(justReadUpdate));
+                    await GM.setValue('justRead', JSON.stringify(justReadUpdate));
                     console.log(`Updated justRead for manga ${mangaId} with final metadata.`);
                 }
 
@@ -1580,12 +1583,16 @@ async function retrieveData(mangaId) {
 async function manageStorage() {
     const MAX_ENTRIES = 52;  // Limit to store 50 recent hentai
     const keys = await GM.listValues();
-    if (keys.length > MAX_ENTRIES) {
+    // Only consider numeric manga ID keys; ignore metadata and other keys like 'justRead'
+    const mangaIdKeys = keys.filter(k => /^\d+$/.test(k));
+    if (mangaIdKeys.length > MAX_ENTRIES) {
         const entries = [];
-        for (let key of keys) {
+        for (let key of mangaIdKeys) {
             const value = await GM.getValue(key);
             const data = decompressData(value);
-            entries.push({ key, lastAccessed: data.lastAccessed });
+            if (data && typeof data.lastAccessed === 'number') {
+                entries.push({ key, lastAccessed: data.lastAccessed });
+            }
         }
 
         // Sort by last accessed time, oldest first
@@ -2597,8 +2604,22 @@ function resolveJustReadMetadata() {
     }
 }
 
-// Run resolver on every page load
-resolveJustReadMetadata();
+// Sync justRead from GM storage to localStorage if needed, then resolve metadata
+(async () => {
+    try {
+        const gmJustRead = await GM.getValue('justRead', null);
+        const localJustRead = localStorage.getItem('justRead');
+        if (gmJustRead && !localJustRead) {
+            localStorage.setItem('justRead', gmJustRead);
+            resolveJustReadMetadata();
+            await GM.deleteValue('justRead');
+        } else {
+            resolveJustReadMetadata();
+        }
+    } catch (e) {
+        resolveJustReadMetadata();
+    }
+})();
 
 //---------------------------**Continue Reading**---------------------------------
 
