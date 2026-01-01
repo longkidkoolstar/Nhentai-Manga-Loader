@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Nhentai Manga Loader
 // @namespace    http://www.nhentai.net
-// @version      6.3.4
+// @version      6.3.5
 // @author       longkidkoolstar
 // @description  Loads nhentai manga chapters into one page in a long strip format with image scaling, click events, and a dark mode for reading.
 // @match        https://nhentai.net/*
@@ -1047,7 +1047,25 @@ function deleteMangaFromStorage() {
         }
     });
 
+    deleteMangaImageCacheFromLocalStorage(mangaId);
     console.log(`Manga ${mangaId} deleted from storage`);
+}
+
+function deleteMangaImageCacheFromLocalStorage(mangaId) {
+    const prefix = `imagePage_${mangaId}_`;
+    const keysToRemove = [];
+    for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && key.startsWith(prefix)) {
+            keysToRemove.push(key);
+        }
+    }
+    for (const key of keysToRemove) {
+        localStorage.removeItem(key);
+    }
+    if (keysToRemove.length > 0) {
+        console.log(`Deleted ${keysToRemove.length} cached pages from localStorage for manga ${mangaId}`);
+    }
 }
 
 // Replace the addScrollListener function with the following code
