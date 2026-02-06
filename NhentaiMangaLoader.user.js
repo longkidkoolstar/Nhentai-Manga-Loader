@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Nhentai Manga Loader
 // @namespace    http://www.nhentai.net
-// @version      6.3.5
+// @version      6.3.6
 // @author       longkidkoolstar
 // @description  Loads nhentai manga chapters into one page in a long strip format with image scaling, click events, and a dark mode for reading.
 // @match        https://nhentai.net/*
@@ -846,8 +846,9 @@ function logCurrentPage() {
     if (!hasSavedFinished && lastPageLoaded && currentPage >= totalPages - 3 && (!isPopupVisible || freshloadedcache)) {
         previousPage = currentPage;
         hasSavedFinished = true;
-        saveFinishedManga(mangaId);
-        deleteMangaFromStorage();
+        saveFinishedManga(mangaId).then(() => {
+            deleteMangaFromStorage();
+        });
     }
 }
 async function saveFinishedManga(mangaId) {
@@ -1187,6 +1188,7 @@ async function loadMangaImages(mangaId) {
         const exitButton = createExitButton();
         container.appendChild(exitButton);
         exitButton.addEventListener('click', () => {
+            deleteMangaFromStorage();
             window.location.reload();
         })
     }
