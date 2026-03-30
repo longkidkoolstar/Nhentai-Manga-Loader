@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Nhentai Manga Loader
 // @namespace    http://www.nhentai.net
-// @version      6.3.6
+// @version      6.3.7
 // @author       longkidkoolstar
 // @description  Loads nhentai manga chapters into one page in a long strip format with image scaling, click events, and a dark mode for reading.
 // @match        https://nhentai.net/*
@@ -1951,6 +1951,19 @@ function addContinueReadingButton() {
 
 // Call the function to add the Continue Reading button
 addContinueReadingButton();
+
+// Signal to other scripts (e.g. Nhentai Plus+) that Continue Reading is available.
+// Heartbeat expires automatically when Manga Loader is no longer running.
+function publishContinueReadingSignal() {
+    try {
+        localStorage.setItem('nhml_continueReading', '1');
+        localStorage.setItem('nhml_continueReading_lastSeen', String(Date.now()));
+    } catch (_) { }
+    window.dispatchEvent(new Event('nhml-continue-reading-ready'));
+}
+
+publishContinueReadingSignal();
+setInterval(publishContinueReadingSignal, 30000);
 
 // Handle continue_reading page
 if (window.location.href.includes('/continue_reading')) {
