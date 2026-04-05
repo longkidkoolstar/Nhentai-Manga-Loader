@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Nhentai Manga Loader
 // @namespace    http://www.nhentai.net
-// @version      6.3.7
+// @version      6.3.8
 // @author       longkidkoolstar
 // @description  Loads nhentai manga chapters into one page in a long strip format with image scaling, click events, and a dark mode for reading.
 // @match        https://nhentai.net/*
@@ -427,6 +427,7 @@ function getCurrentPage(entry) {
 // Declare reloadMode at the top level
 let reloadMode = false; // Flag to track reload mode
 let hasSavedFinished = false; // Prevent double-saving completion when reaching the end
+let nhmlLoadButtonObserver = null;
 
 async function createStatsWindow() {
     const statsWindow = document.createElement('div');
@@ -796,13 +797,13 @@ function addClickEventToImage(image) {
 
 
 
-    // Function to hide specified elements
+    // Function to hide specified elements (including #app so min-height:100vh shells do not leave a blank scroll gap)
     function hideElements() {
-        const elementsToHide = ['#image-container', '#content', 'nav'];
+        const elementsToHide = ['#image-container', '#content', 'nav', '#app'];
         elementsToHide.forEach(selector => {
             const element = document.querySelector(selector);
             if (element) {
-                element.style.display = 'none';
+                element.style.setProperty('display', 'none', 'important');
             }
         });
     }
@@ -1092,7 +1093,14 @@ setInterval(() => {
 
 // Load all manga images with page separators and scaling
 async function loadMangaImages(mangaId) {
+    if (nhmlLoadButtonObserver) {
+        nhmlLoadButtonObserver.disconnect();
+        nhmlLoadButtonObserver = null;
+    }
     hideElements();
+    window.scrollTo(0, 0);
+    if (document.documentElement) document.documentElement.scrollTop = 0;
+    if (document.body) document.body.scrollTop = 0;
     createStatsWindow(); // Create the stats window
 
     const mangaContainer = document.createElement('div');
@@ -1771,7 +1779,8 @@ async function checkRedirected() {
     if (wasRedirected) {
         const mangaId = extractMangaId(window.location.href);
         console.log(`Loading manga images for manga ID: ${mangaId}`); // Log the manga ID
-        loadMangaButton.remove(); // Remove the load manga button since we already did it
+        const loadBtn = document.querySelector('.load-manga-btn');
+        if (loadBtn) loadBtn.remove();
         loadMangaImages(mangaId); // Call loadMangaImages after redirection
         console.log(`Reset redirected flag to false in storage.`); // Log confirmation of resetting the flag
         localStorage.setItem('redirected', JSON.stringify(false)); // Reset the flag in storage
@@ -1872,40 +1881,47 @@ async function saveCurrentPosition(mangaId) {
 // Periodically clean up storage
     manageStorage();
 
+    function nhmlReaderUiReady() {
+        return !!(document.querySelector('.num-pages') && document.querySelector('#image-container'));
+    }
 
-    window.loadMangaButton = document.createElement('button');
-    loadMangaButton.textContent = 'Load Manga';
-    loadMangaButton.className = 'load-manga-btn';
-    loadMangaButton.style.position = 'fixed';
-    loadMangaButton.style.bottom = '0';
-    loadMangaButton.style.right = '0';
-    loadMangaButton.style.padding = '5px';
-    loadMangaButton.style.margin = '0 10px 10px 0';
-    loadMangaButton.style.zIndex = '9999999999';
+    function nhmlShouldOfferLoadButton() {
+        // Any reader URL: /g/<mangaId>/<page>/ (excludes gallery-only /g/<id>/)
+        if (!/^\/g\/\d+\/\d+\/?$/.test(window.location.pathname)) return false;
+        if (window.location.origin !== 'https://nhentai.net') return false;
+        if (document.getElementById('manga-container')) return false;
+        return nhmlReaderUiReady();
+    }
 
-if (window.location.href.startsWith("https://nhentai.net/g/")) {
-    const buttonsDiv = document.querySelectorAll('.buttons');
+    function nhmlAttachLoadMangaButton() {
+        if (!nhmlShouldOfferLoadButton()) {
+            const stale = document.querySelector('.load-manga-btn');
+            if (stale) {
+                stale.remove();
+                window.loadMangaButton = null;
+            }
+            return;
+        }
+        if (document.querySelector('.load-manga-btn')) return;
 
-    if (buttonsDiv.length > 0) {
-        //console.log('Buttons div already exists.');
-    } else if (!document.body.contains(loadMangaButton)) {
-        document.body.appendChild(loadMangaButton);
+        const btn = document.createElement('button');
+        btn.textContent = 'Load Manga';
+        btn.className = 'load-manga-btn';
+        btn.style.cssText = 'position:fixed;bottom:0;right:0;padding:5px;margin:0 10px 10px 0;z-index:2147483647;';
+        btn.addEventListener('click', async function onLoadMangaClick() {
+            const mid = extractMangaId(window.location.href);
+            if (mid) {
+                loadMangaImages();
 
-        loadMangaButton.addEventListener('click', async function () {
-            const mangaId = extractMangaId(window.location.href);
-            if (mangaId) {
-                loadMangaImages(); // Load the manga images first
-
-                // Check if there's a saved position for the manga
-                const savedPosition = await retrieveData(mangaId);
+                const savedPosition = await retrieveData(mid);
                 if (savedPosition) {
                     const savedPage = savedPosition.pageNum;
                     if (savedPage && savedPage >= totalPages - 3) {
-                        await GM.deleteValue(mangaId);
-                        console.log(`Saved position deleted for ${mangaId} since it's within 3 pages of the end.`);
+                        await GM.deleteValue(mid);
+                        console.log(`Saved position deleted for ${mid} since it's within 3 pages of the end.`);
                     } else {
                         showPopupForSavedPosition("Do you want to load your last saved position?", async () => {
-                            await loadSavedPosition(mangaId);
+                            await loadSavedPosition(mid);
                         }, {
                             confirmText: 'Yes',
                             cancelText: 'No',
@@ -1913,13 +1929,28 @@ if (window.location.href.startsWith("https://nhentai.net/g/")) {
                         });
                     }
                 } else {
-                    console.log('No saved position found for manga ID:', mangaId);
+                    console.log('No saved position found for manga ID:', mid);
                 }
             }
-            loadMangaButton.remove();
+            btn.remove();
+            window.loadMangaButton = null;
         });
+
+        document.body.appendChild(btn);
+        window.loadMangaButton = btn;
     }
-}
+
+    let nhmlEnsureBtnTimer = 0;
+    function nhmlScheduleEnsureLoadButton() {
+        clearTimeout(nhmlEnsureBtnTimer);
+        nhmlEnsureBtnTimer = setTimeout(nhmlAttachLoadMangaButton, 50);
+    }
+
+    nhmlAttachLoadMangaButton();
+    nhmlScheduleEnsureLoadButton();
+
+    nhmlLoadButtonObserver = new MutationObserver(() => nhmlScheduleEnsureLoadButton());
+    nhmlLoadButtonObserver.observe(document.documentElement, { childList: true, subtree: true });
     
     
         
