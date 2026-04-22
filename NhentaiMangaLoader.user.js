@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Nhentai Manga Loader
 // @namespace    http://www.nhentai.net
-// @version      6.3.8
+// @version      6.3.9
 // @author       longkidkoolstar
 // @description  Loads nhentai manga chapters into one page in a long strip format with image scaling, click events, and a dark mode for reading.
 // @match        https://nhentai.net/*
@@ -896,10 +896,13 @@ async function saveFinishedManga(mangaId) {
         (async () => {
             let coverImageUrl = null;
             try {
-                const response = await fetch(`https://nhentai.net/api/gallery/${mangaId}`);
+                const response = await fetch(`https://nhentai.net/api/v2/galleries/${mangaId}`);
+                if (!response.ok) {
+                    throw new Error(`Failed to fetch gallery ${mangaId}: HTTP ${response.status}`);
+                }
                 const data = await response.json();
                 if (data) {
-                    mangaTitle = data.title.english || mangaTitle;
+                    mangaTitle = data.title?.english || data.title?.pretty || data.title?.japanese || mangaTitle;
                     const mediaId = data.media_id;
 
                     // Find a working cover image URL
@@ -2470,12 +2473,15 @@ function displayMangaTable() {
         // If no cached data, fetch from API
         console.log(`Fetching metadata for manga ID: ${mangaId}`);
         try {
-            const response = await fetch(`https://nhentai.net/api/gallery/${mangaId}`);
+            const response = await fetch(`https://nhentai.net/api/v2/galleries/${mangaId}`);
+            if (!response.ok) {
+                throw new Error(`Failed to fetch gallery ${mangaId}: HTTP ${response.status}`);
+            }
             const data = await response.json();
             
             if (data) {
                 console.log('Fetched manga data:', data);
-                const mangaTitle = data.title.english;
+                const mangaTitle = data.title?.english || data.title?.pretty || data.title?.japanese || 'Unknown';
                 const mediaId = data.media_id;
                 
                 // Get a working cover image URL with appropriate subdomain
@@ -2639,10 +2645,13 @@ function resolveJustReadMetadata() {
                     coverImageUrl = meta.coverImageUrl || coverImageUrl;
                     languageDisplay = meta.languageDisplay || languageDisplay;
                 } else {
-                    const resp = await fetch(`https://nhentai.net/api/gallery/${m.id}`);
+                    const resp = await fetch(`https://nhentai.net/api/v2/galleries/${m.id}`);
+                    if (!resp.ok) {
+                        throw new Error(`Failed to fetch gallery ${m.id}: HTTP ${resp.status}`);
+                    }
                     const data = await resp.json();
                     if (data) {
-                        title = data.title?.english || title;
+                        title = data.title?.english || data.title?.pretty || data.title?.japanese || title;
                         const mediaId = data.media_id;
                         // Resolve cover: use helper if available, else fallback
                         let workingCover = null;
