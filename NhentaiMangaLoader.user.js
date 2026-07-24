@@ -1,11 +1,12 @@
 // ==UserScript==
 // @name         Nhentai Manga Loader
 // @namespace    http://www.nhentai.net
-// @version      6.3.9
+// @version      6.4.0
 // @author       longkidkoolstar
 // @description  Loads nhentai manga chapters into one page in a long strip format with image scaling, click events, and a dark mode for reading.
 // @match        https://nhentai.net/*
 // @require      https://code.jquery.com/jquery-3.6.0.min.js
+// @require      https://nhentai.net/userscript/v1.js
 // @icon         https://i.imgur.com/S0x03gs.png
 // @grant        GM.getValue
 // @grant        GM.setValue
@@ -812,6 +813,96 @@ function addClickEventToImage(image) {
 // Add this at the top level to track image loading status
 const imageStatus = []; // Array to track the status of each image
 
+// --- Official API / CDN helpers (prefer page data; avoid HTML scraping) ---
+let nhmlCdnCache = null;
+
+function nhmlDelay(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function nhmlHashCode(str) {
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+        hash = ((hash << 5) - hash + str.charCodeAt(i)) | 0;
+    }
+    return Math.abs(hash);
+}
+
+function nhmlPickServer(servers, path, attempt = 0) {
+    if (!servers || !servers.length) return '';
+    return servers[(nhmlHashCode(path) + (attempt || 0)) % servers.length];
+}
+
+function nhmlCdnUrl(kind, path, attempt = 0, cdn = null) {
+    if (!path) return '';
+    if (/^(https?:)?\/\//.test(path)) return path;
+    const nh = window.nhentai_userscript_v1;
+    if (nh && nh.cdn) {
+        return kind === 'thumb' ? nh.cdn.thumb(path, attempt) : nh.cdn.image(path, attempt);
+    }
+    const conf = cdn || nhmlCdnCache;
+    const servers = conf
+        ? (kind === 'thumb' ? conf.thumb_servers : conf.image_servers)
+        : null;
+    const origin = nhmlPickServer(servers, path, attempt);
+    return origin ? `${origin}/${path}` : '';
+}
+
+async function nhmlFetchCdnConfig() {
+    if (nhmlCdnCache?.image_servers?.length) return nhmlCdnCache;
+    const nh = window.nhentai_userscript_v1;
+    const fromPage = nh?.get?.()?.cdn;
+    if (fromPage?.image_servers?.length) {
+        nhmlCdnCache = fromPage;
+        return nhmlCdnCache;
+    }
+    const res = await fetch('https://nhentai.net/api/v2/cdn');
+    if (!res.ok) throw new Error(`CDN config HTTP ${res.status}`);
+    nhmlCdnCache = await res.json();
+    return nhmlCdnCache;
+}
+
+async function nhmlResolveGallery(mangaId, retryCount = 0) {
+    const nh = window.nhentai_userscript_v1;
+    if (nh) {
+        try {
+            const data = await Promise.race([
+                nh.ready().then(() => nh.get()),
+                nhmlDelay(2500).then(() => null)
+            ]);
+            if (data?.gallery?.pages?.length && String(data.gallery.id) === String(mangaId)) {
+                const cdn = data.cdn || await nhmlFetchCdnConfig();
+                return { gallery: data.gallery, cdn };
+            }
+        } catch (e) {
+            console.warn('userscript helper gallery read failed', e);
+        }
+    }
+
+    const [galleryRes, cdn] = await Promise.all([
+        fetch(`https://nhentai.net/api/v2/galleries/${mangaId}`),
+        nhmlFetchCdnConfig()
+    ]);
+
+    if (galleryRes.status === 429) {
+        if (retryCount >= 3) throw new Error('Gallery API rate limited (429)');
+        const retryAfter = parseInt(galleryRes.headers.get('Retry-After') || '5', 10);
+        console.warn(`Gallery API 429; backing off ${retryAfter}s...`);
+        await nhmlDelay(Math.max(1, retryAfter) * 1000);
+        return nhmlResolveGallery(mangaId, retryCount + 1);
+    }
+    if (!galleryRes.ok) throw new Error(`Gallery API HTTP ${galleryRes.status}`);
+    return { gallery: await galleryRes.json(), cdn };
+}
+
+function nhmlBuildPageList(gallery, cdn) {
+    return (gallery.pages || []).map(p => ({
+        number: p.number,
+        path: p.path,
+        imgSrc: nhmlCdnUrl('image', p.path, 0, cdn)
+    }));
+}
+
 // Add an event listener to detect when the user scrolls
 window.addEventListener('scroll', logCurrentPage);
 
@@ -904,29 +995,13 @@ async function saveFinishedManga(mangaId) {
                 const data = await response.json();
                 if (data) {
                     mangaTitle = data.title?.english || data.title?.pretty || data.title?.japanese || mangaTitle;
-                    const mediaId = data.media_id;
-
-                    // Find a working cover image URL
-                    const subdomains = ['i1', 'i2', 'i3', 'i4', 'i5', 'i7', 't1', 't2', 't3', 't4', 't5', 't7'];
-                    const formats = ['webp', 'png', 'jpg'];
-                    coverImageUrl = null;
-                    findImage: for (const subdomain of subdomains) {
-                        for (const format of formats) {
-                            const testUrl = `https://${subdomain}.nhentai.net/galleries/${mediaId}/cover.${format}`;
-                            const exists = await new Promise((resolve) => {
-                                const img = new Image();
-                                img.onload = () => resolve(true);
-                                img.onerror = () => resolve(false);
-                                img.src = testUrl;
-                            });
-                            if (exists) {
-                                coverImageUrl = testUrl;
-                                break findImage;
-                            }
-                        }
-                    }
-                    if (!coverImageUrl) {
-                        coverImageUrl = `https://t3.nhentai.net/galleries/${mediaId}/cover.jpg`;
+                    // Use exact cover.path from API + CDN servers (do not guess extensions/hosts)
+                    await nhmlFetchCdnConfig().catch(() => null);
+                    coverImageUrl = data.cover?.path
+                        ? (nhmlCdnUrl('thumb', data.cover.path) || nhmlCdnUrl('image', data.cover.path))
+                        : null;
+                    if (!coverImageUrl && data.media_id) {
+                        coverImageUrl = await findWorkingImageUrl(data.media_id);
                     }
 
                     // Language processing
@@ -1121,10 +1196,24 @@ async function loadMangaImages(mangaId) {
     const exitButtonTop = createExitButton();
     mangaContainer.appendChild(exitButtonTop);
 
-    totalPages = parseInt(document.querySelector('.num-pages').textContent.trim());
-    totalImages = totalPages; // Update total images for stats
+    const mid = mangaId || extractMangaId(window.location.href);
+    let pageList = [];
+    let pageMap = new Map();
+    try {
+        const { gallery, cdn } = await nhmlResolveGallery(mid);
+        pageList = nhmlBuildPageList(gallery, cdn).filter(p => p.imgSrc);
+        pageMap = new Map(pageList.map(p => [p.number, p]));
+        totalPages = gallery.num_pages || pageList.length;
+        if (!pageList.length) throw new Error('Gallery returned no page paths');
+        console.log(`Resolved ${pageList.length} pages via API/CDN for gallery ${mid}`);
+    } catch (err) {
+        console.error('Failed to resolve gallery pages without HTML scraping:', err);
+        alert('Could not load manga metadata (API error or rate limit). Wait a bit and try again.');
+        return;
+    }
+    totalImages = totalPages;
     const initialPage = getAccurateCurrentPage();
-    let currentPage = initialPage;
+    let currentPage = Math.min(Math.max(1, initialPage || 1), totalPages);
 
     // Batch loading configuration
     const userBatchSize = await GM.getValue('batchSize', 10);
@@ -1132,18 +1221,18 @@ async function loadMangaImages(mangaId) {
     const loadAllBatches = await GM.getValue('loadAllBatches', false);
     const batchSize = Math.max(1, Math.min(100, parseInt(userBatchSize, 10) || 10));
 
-    let lastLoadedPage = 0; // track highest page fully loaded into DOM
-    let targetBatchEnd = null; // inclusive page number for current batch
-    let nextBatchStartLink = null; // href to begin next batch when user clicks Load More
-    let loadMoreEl = null; // UI element at strip end for triggering more
+    let lastLoadedPage = 0;
+    let targetBatchEnd = null;
+    let nextBatchStartPage = null;
+    let loadMoreEl = null;
+    const scheduledPages = new Set();
 
-    // Queue for tracking loading images
+    // Keep concurrency browser-like; CDN bans sustained rates beyond normal browsing
     const loadingQueue = [];
-    const maxConcurrentLoads = /Mobi/.test(navigator.userAgent) ? 10 : 40; // Maximum number of concurrent image loads
+    const maxConcurrentLoads = /Mobi/.test(navigator.userAgent) ? 3 : 6;
 
-    // Create/attach a sentinel UI that lets user load more
     function ensureLoadMoreControl() {
-        if (loadAllBatches || loadMoreEl) return;
+        if (loadAllBatches || loadMoreEl || nextBatchStartPage == null || nextBatchStartPage > totalPages) return;
         loadMoreEl = document.createElement('div');
         loadMoreEl.className = 'ml-load-more';
         loadMoreEl.style.cssText = 'display:flex;align-items:center;justify-content:center;margin:16px 0;padding:10px;border-radius:6px;background:#333;color:#fff;cursor:pointer;user-select:none;';
@@ -1173,288 +1262,213 @@ async function loadMangaImages(mangaId) {
         loadMoreEl = null;
     }
 
-    function startNextBatch() {
-        if (!nextBatchStartLink) return;
-        removeLoadMoreControl();
-        targetBatchEnd = Math.min(totalPages, lastLoadedPage + batchSize);
-        loadingQueue.push({ pageNumber: lastLoadedPage + 1, pageUrl: nextBatchStartLink });
+    function enqueueRange(from, to) {
+        for (let n = from; n <= to; n++) {
+            if (n < 1 || n > totalPages || scheduledPages.has(n)) continue;
+            scheduledPages.add(n);
+            loadingQueue.push(n);
+        }
         processQueue();
     }
 
-    // Helper to create the page container with images
-    function createPageContainer(pageNumber, imgSrc) {
+    function startNextBatch() {
+        if (nextBatchStartPage == null || nextBatchStartPage > totalPages) return;
+        removeLoadMoreControl();
+        const from = nextBatchStartPage;
+        targetBatchEnd = Math.min(totalPages, from + batchSize - 1);
+        nextBatchStartPage = targetBatchEnd < totalPages ? targetBatchEnd + 1 : null;
+        enqueueRange(from, targetBatchEnd);
+        if (!loadAllBatches) ensureLoadMoreControl();
+    }
+
+    function createPageContainer(pageNumber, imgSrc, pagePath) {
+        // Keep strip order stable even when CDN responses finish out of order
+        const existing = document.querySelector(`#manga-container .manga-page-container img[alt="Page ${pageNumber}"]`);
+        if (existing) {
+            return { container: existing.closest('.manga-page-container'), img: existing };
+        }
+
         const container = document.createElement('div');
         container.className = 'manga-page-container';
+        container.dataset.page = String(pageNumber);
 
-        // Create the actual image element
         const img = document.createElement('img');
-        img.src = ''; // Start with empty src to avoid loading it immediately
-        img.dataset.src = imgSrc; // Store the actual src in data attribute
+        img.src = '';
+        img.dataset.src = imgSrc;
+        if (pagePath) img.dataset.path = pagePath;
         img.alt = `Page ${pageNumber}`;
 
-        // Add page counter below the image
         const pageCounter = addPageCounter(pageNumber);
-
-        // Append the image and page counter
         container.appendChild(img);
-        container.appendChild(pageCounter); // <-- Page number is shown here
+        container.appendChild(pageCounter);
 
-          // Add exit button to the bottom of the last loaded page
-    if (pageNumber === totalPages) {
-        const exitButton = createExitButton();
-        container.appendChild(exitButton);
-        exitButton.addEventListener('click', () => {
-            deleteMangaFromStorage();
-            window.location.reload();
-        })
-    }
+        if (pageNumber === totalPages) {
+            const exitButton = createExitButton();
+            container.appendChild(exitButton);
+            exitButton.addEventListener('click', () => {
+                deleteMangaFromStorage();
+                window.location.reload();
+            });
+        }
 
-        // Track the image status
-        imageStatus[pageNumber] = { src: imgSrc, loaded: false, attempts: 0 };
+        imageStatus[pageNumber] = { src: imgSrc, path: pagePath || '', loaded: false, attempts: 0 };
 
-        // Error handling and event listeners
         addErrorHandlingToImage(img, imgSrc, pageNumber);
         addClickEventToImage(img);
-        mangaContainer.appendChild(container);
+
+        // Insert before the first higher-numbered page (or before Load More / at end)
+        const nodes = mangaContainer.querySelectorAll('.manga-page-container');
+        let inserted = false;
+        for (const node of nodes) {
+            const n = parseInt(node.dataset.page || '0', 10);
+            if (n > pageNumber) {
+                mangaContainer.insertBefore(container, node);
+                inserted = true;
+                break;
+            }
+        }
+        if (!inserted) {
+            if (loadMoreEl && loadMoreEl.parentNode === mangaContainer) {
+                mangaContainer.insertBefore(container, loadMoreEl);
+            } else {
+                mangaContainer.appendChild(container);
+            }
+        }
+
         lastLoadedPage = Math.max(lastLoadedPage, pageNumber);
-
-        loadedPages++; // Increment loaded pages count
-        updateStats(); // Update stats display
-
-        observePageContainer(container); // Observe for lazy loading
-
-        // Save scroll position as soon as page container is created
-        const mangaId = extractMangaId(window.location.href);
-        const currentPage = getCurrentVisiblePage(); // Get the current visible page number
-        if (!isPopupVisible || freshloadedcache) {
-           // console.log("load again");
-           // saveCurrentPosition(mangaId, currentPage);
-        }
-        
-
-        // Start loading the actual image for current batch only
-        if (targetBatchEnd && pageNumber <= targetBatchEnd) {
-            img.src = imgSrc; // Load immediately within batch
-        }
-
-        // Mark as loaded on load
-        img.onload = () => {
-            imageStatus[pageNumber].loaded = true; // Mark as loaded
-            loadingImages--; // Decrement loading images count
-            updateStats(); // Update loading images count
-        };
-
-        return container;
-    }
-
-
-
-
-
-
-
-// Add a delay function
-function delay(ms) {
-    return new Promise(resolve => setTimeout(resolve, ms));
-}
-
-// Track if the app is online or offline
-let isOnline = navigator.onLine;
-
-// Add event listeners to detect connection state changes
-window.addEventListener('offline', () => {
-    console.warn('You are offline. Pausing image loading.');
-    isOnline = false;
-});
-
-window.addEventListener('online', () => {
-    console.log('Back online. Resuming image loading.');
-    isOnline = true;
-    if (loadingQueue.length > 0) {
-        processQueue(); // Resume processing the queue
-    } else {
-        // If queue is empty, manually trigger the next page load
-        loadNextBatchOfImages(); // Load the next set of images if queue is empty
-    }
-});
-
-// Load a single page with error handling, retry logic, and caching
-async function loadPage(pageNumber, pageUrl, retryCount = 0) {
-    if (loadingImages >= maxConcurrentLoads || !isOnline) {
-        return; // Exit if we're at max concurrent loads or offline
-    }
-
-    loadingImages++;
-    updateStats(); // Update loading images count
-
-    const mangaId = extractMangaId(pageUrl);
-    if (!mangaId) {
-        console.error(`Could not extract manga ID from URL: ${pageUrl}`);
-        loadingImages--;
+        loadedPages++;
         updateStats();
-        handleFailedImage(pageNumber);
-        return;
+        observePageContainer(container);
+
+        return { container, img };
     }
 
-    // Check cache first
-    const cachedImage = getImageFromCache(pageNumber, mangaId);
-    if (cachedImage && cachedImage.mangaId === mangaId) {
-        console.log(`Loading page ${pageNumber} from cache for manga ${mangaId}`);
-        const pageContainer = createPageContainer(pageNumber, cachedImage.imgSrc);
-        imageStatus[pageNumber].loaded = true; // Mark as loaded
-        
-        // Ensure position is saved for cached pages
-        const currentPage = pageNumber;
-       // console.log("load");
-       // saveCurrentPosition(mangaId, currentPage); // Save the position for cached pages
-        
-        
+    let isOnline = navigator.onLine;
 
-        loadingImages--;
-        updateStats(); // Update loading images count
+    window.addEventListener('offline', () => {
+        console.warn('You are offline. Pausing image loading.');
+        isOnline = false;
+    });
 
-        // Queue next page only within current batch, else set up for next batch
-        if (pageNumber < targetBatchEnd && cachedImage.nextLink) {
-            loadingQueue.push({ pageNumber: pageNumber + 1, pageUrl: cachedImage.nextLink });
-            processQueue();
-        } else if (pageNumber === targetBatchEnd && cachedImage.nextLink) {
-            nextBatchStartLink = cachedImage.nextLink;
-            if (!loadAllBatches) ensureLoadMoreControl();
+    window.addEventListener('online', () => {
+        console.log('Back online. Resuming image loading.');
+        isOnline = true;
+        processQueue();
+    });
+
+    function waitForImage(img, src) {
+        return new Promise(resolve => {
+            let settled = false;
+            const finish = (ok) => {
+                if (settled) return;
+                settled = true;
+                img.removeEventListener('load', onLoad);
+                img.removeEventListener('error', onError);
+                resolve(ok);
+            };
+            const onLoad = () => finish(true);
+            const onError = () => finish(false);
+            img.addEventListener('load', onLoad);
+            img.addEventListener('error', onError);
+            img.src = src;
+            if (img.complete) {
+                finish(img.naturalWidth > 0);
+            }
+        });
+    }
+
+    async function loadPage(pageNumber) {
+        if (!isOnline) {
+            loadingQueue.unshift(pageNumber);
+            return;
         }
-        return;
-    }
 
-    try {
-        const response = await fetch(pageUrl);
+        loadingImages++;
+        updateStats();
 
-        if (response.status === 429) {
-            if (retryCount < maxRetries) {
-                console.warn(`Rate limit exceeded for page ${pageNumber}. Retrying in ${retryDelay} ms...`);
-                await delay(retryDelay); // Wait before retrying
-                loadPage(pageNumber, pageUrl, retryCount + 1); // Retry loading the same page
-                return;
-            } else {
-                console.error(`Failed to load page ${pageNumber} after ${maxRetries} attempts.`);
-                loadingImages--;
-                updateStats(); // Update loading images count
-                handleFailedImage(pageNumber); // Handle failed image loading
-                return;
+        const pageInfo = pageMap.get(pageNumber);
+        if (!pageInfo) {
+            console.error(`No API page info for page ${pageNumber}`);
+            loadingImages--;
+            updateStats();
+            handleFailedImage(pageNumber);
+            processQueue();
+            return;
+        }
+
+        const existingImg = document.querySelector(`#manga-container img[alt="Page ${pageNumber}"]`);
+        let imgSrc = pageInfo.imgSrc;
+        const attempt = imageStatus[pageNumber]?.attempts || 0;
+        if (attempt > 0 && pageInfo.path) {
+            imgSrc = nhmlCdnUrl('image', pageInfo.path, attempt) || imgSrc;
+        } else {
+            const cachedImage = getImageFromCache(pageNumber, mid);
+            if (cachedImage && cachedImage.mangaId === mid && cachedImage.imgSrc) {
+                imgSrc = cachedImage.imgSrc;
+                console.log(`Loading page ${pageNumber} from cache for manga ${mid}`);
             }
         }
 
-        const html = await response.text();
-        const parser = new DOMParser();
-        const doc = parser.parseFromString(html, 'text/html');
-        // Be robust to markup differences on last page (no anchor wrapping the image)
-        const anchorEl = doc.querySelector('#image-container a');
-        const imgElement = doc.querySelector('#image-container img') || (anchorEl ? anchorEl.querySelector('img') : null);
-        const nextLink = anchorEl ? anchorEl.href : null;
-        if (!imgElement) {
-            throw new Error(`No image element found for page ${pageNumber}`);
-        }
-        const imgSrc = imgElement.getAttribute('data-src') || imgElement.src;
-
-        // Save to cache
-        saveImageToCache(pageNumber, imgSrc, nextLink, mangaId);
-
-        const pageContainer = createPageContainer(pageNumber, imgSrc);
-        imageStatus[pageNumber].loaded = true; // Mark as loaded
-
-        loadingImages--;
-        updateStats(); // Update loading images count
-
-        // Queue next page only within current batch, else set up for next batch
-        if (pageNumber < targetBatchEnd && nextLink) {
-            loadingQueue.push({ pageNumber: pageNumber + 1, pageUrl: nextLink });
+        try {
+            let img = existingImg;
+            if (!img) {
+                ({ img } = createPageContainer(pageNumber, imgSrc, pageInfo.path));
+            } else {
+                img.dataset.src = imgSrc;
+                if (pageInfo.path) img.dataset.path = pageInfo.path;
+            }
+            saveImageToCache(pageNumber, imgSrc, null, mid);
+            const ok = await waitForImage(img, imgSrc);
+            if (ok) {
+                if (imageStatus[pageNumber]) imageStatus[pageNumber].loaded = true;
+            } else {
+                handleFailedImage(pageNumber);
+            }
+        } catch (err) {
+            console.error(err);
+            handleFailedImage(pageNumber);
+        } finally {
+            loadingImages--;
+            updateStats();
             processQueue();
-        } else if (pageNumber === targetBatchEnd && nextLink) {
-            nextBatchStartLink = nextLink;
-            if (!loadAllBatches) ensureLoadMoreControl();
-        }
-    } catch (err) {
-        loadingImages--;
-        console.error(err);
-        updateStats(); // Update loading images count
-        handleFailedImage(pageNumber); // Handle failed image loading
-    }
-}
-
-// In your processing queue, ensure a delay ONLY after 429 status
-async function processQueue() {
-    while (loadingQueue.length > 0 && loadingImages < maxConcurrentLoads && isOnline) {
-        const { pageNumber, pageUrl } = loadingQueue.shift(); // Get the next page to load
-        loadPage(pageNumber, pageUrl); // Load it
-    }
-}
-
-// Manually trigger the next batch of images if needed
-function loadNextBatchOfImages() {
-    if (loadingQueue.length === 0 && isOnline) {
-        const nextPageNumber = getNextPageNumber(); // Logic to get the next page number
-        const nextPageUrl = getNextPageUrl(nextPageNumber); // Logic to get the next page URL
-
-        if (nextPageUrl) {
-            loadingQueue.push({ pageNumber: nextPageNumber, pageUrl: nextPageUrl });
-            processQueue(); // Resume loading
         }
     }
-}
 
-// Configuration for retry logic
-const maxRetries = 5; // Maximum number of retries for rate limit
-const retryDelay = 5000; // Delay in milliseconds before retrying only on 429 status
+    async function processQueue() {
+        while (loadingQueue.length > 0 && loadingImages < maxConcurrentLoads && isOnline) {
+            const pageNumber = loadingQueue.shift();
+            loadPage(pageNumber);
+        }
+    }
 
-
-
-
-
-    // Handle failed image loading attempts
     function handleFailedImage(pageNumber) {
-        if (imageStatus[pageNumber]) {
-            imageStatus[pageNumber].attempts++;
-            if (imageStatus[pageNumber].attempts <= 3) { // Retry up to 3 times
-                console.warn(`Retrying to load image for page ${pageNumber}...`);
-                const anchor = document.querySelector('#image-container a');
-                const mangaIdForRetry = extractMangaId(window.location.href);
-                const fallbackUrl = `${window.location.origin}/g/${mangaIdForRetry}/${pageNumber}/`;
-                const retryUrl = anchor ? anchor.href : fallbackUrl;
-                loadPage(pageNumber, retryUrl); // Reattempt loading the same page
-            } else {
-                console.error(`Failed to load image for page ${pageNumber} after 3 attempts.`);
+        if (!imageStatus[pageNumber]) {
+            imageStatus[pageNumber] = { src: '', path: pageMap.get(pageNumber)?.path || '', loaded: false, attempts: 0 };
+        }
+        imageStatus[pageNumber].attempts++;
+        if (imageStatus[pageNumber].attempts <= 3) {
+            console.warn(`Retrying page ${pageNumber} with alternate CDN server...`);
+            const path = imageStatus[pageNumber].path || pageMap.get(pageNumber)?.path;
+            if (path || pageMap.get(pageNumber)?.imgSrc) {
+                scheduledPages.delete(pageNumber);
+                // Brief backoff — CDN docs say treat 429 as a backoff signal
+                nhmlDelay(1000 * imageStatus[pageNumber].attempts).then(() => enqueueRange(pageNumber, pageNumber));
             }
+        } else {
+            console.error(`Failed to load image for page ${pageNumber} after 3 attempts.`);
         }
     }
 
-
-
-// Establish initial batch boundary
-targetBatchEnd = loadAllBatches ? totalPages : Math.min(totalPages, currentPage + batchSize - 1);
-
-const firstImageElement = document.querySelector('#image-container img');
-const firstImgSrc = firstImageElement ? (firstImageElement.getAttribute('data-src') || firstImageElement.src) : null;
-if (!firstImgSrc) {
-    console.error('Could not find first image src within #image-container');
-}
-createPageContainer(currentPage, firstImgSrc);
-
-const firstAnchor = document.querySelector('#image-container a');
-const mangaIdForFirst = extractMangaId(window.location.href);
-const nextPageUrlFallback = (currentPage < totalPages) ? `${window.location.origin}/g/${mangaIdForFirst}/${currentPage + 1}/` : null;
-const firstImageLink = firstAnchor ? firstAnchor.href : nextPageUrlFallback;
-if (currentPage < targetBatchEnd) {
-    loadingQueue.push({ pageNumber: currentPage + 1, pageUrl: firstImageLink });
-    processQueue();
-} else {
-    nextBatchStartLink = firstImageLink;
+    targetBatchEnd = loadAllBatches ? totalPages : Math.min(totalPages, currentPage + batchSize - 1);
+    nextBatchStartPage = (!loadAllBatches && targetBatchEnd < totalPages) ? targetBatchEnd + 1 : null;
+    enqueueRange(currentPage, targetBatchEnd);
     if (!loadAllBatches) ensureLoadMoreControl();
-}
 
-// Observe all image containers for lazy loading
-observeAndPreloadImages();
+    observeAndPreloadImages();
 
-exitButtonTop.addEventListener('click', function() {
-    window.location.reload();
-});
+    exitButtonTop.addEventListener('click', function() {
+        window.location.reload();
+    });
 }
 
 // Pre-load next few images while user scrolls
@@ -1512,12 +1526,9 @@ function saveImageToCache(pageNumber, imgSrc, nextLink, mangaId) {
 
 
   function addErrorHandlingToImage(image, imgSrc, pageNumber) {
-    const subdomains = ['i1', 'i2', 'i3', 'i4', 'i5', 'i7']; // Add the alternative subdomains here
-    let currentSubdomainIndex = 0;
-
     function updateImageSource(newSrc) {
         image.src = newSrc;
-        image.dataset.src = newSrc; // Update data-src attribute
+        image.dataset.src = newSrc;
         updateImageCache(newSrc);
     }
 
@@ -1532,38 +1543,35 @@ function saveImageToCache(pageNumber, imgSrc, nextLink, mangaId) {
     }
 
     image.onerror = function() {
-        console.warn(`Failed to load image: ${imgSrc} on page ${pageNumber}. Retrying...`);
-        
+        const path = image.dataset.path || imageStatus[pageNumber]?.path;
+        if (!path) {
+            console.error(`Failed to load image on page ${pageNumber} (no CDN path).`);
+            image.alt = `Failed to load page ${pageNumber}`;
+            return;
+        }
+
+        if (!imageStatus[pageNumber]) {
+            imageStatus[pageNumber] = { src: imgSrc, path, loaded: false, attempts: 0 };
+        }
         if (!imageStatus[pageNumber].retryCount) {
             imageStatus[pageNumber].retryCount = 0;
         }
 
-        if (imageStatus[pageNumber].retryCount < subdomains.length) {
+        // Rotate CDN servers using official path + attempt offset (do not guess extensions)
+        if (imageStatus[pageNumber].retryCount < 4) {
             imageStatus[pageNumber].retryCount++;
-            
-            const newSubdomain = subdomains[currentSubdomainIndex];
-            const newImgSrc = imgSrc.replace(/i\d/, newSubdomain);
-
-            currentSubdomainIndex = (currentSubdomainIndex + 1) % subdomains.length;
-            console.log(`Retrying with new subdomain: ${newSubdomain} for page ${pageNumber}`);
-            
+            const attempt = imageStatus[pageNumber].retryCount;
+            const newImgSrc = nhmlCdnUrl('image', path, attempt);
+            console.warn(`CDN load failed for page ${pageNumber}; retry attempt ${attempt}`);
             setTimeout(() => {
-                updateImageSource(newImgSrc);
-                // Update the local storage cache for this page
-                const mangaId = extractMangaId(window.location.href);
-                const cachedData = getImageFromCache(pageNumber, mangaId);
-                if (cachedData) {
-                    saveImageToCache(pageNumber, newImgSrc, cachedData.nextLink, mangaId);
-                    console.log(`Updated local storage cache for page ${pageNumber} with new URL: ${newImgSrc}`);
-                }
-            }, 1000);
+                if (newImgSrc) updateImageSource(newImgSrc);
+            }, 1000 * attempt);
         } else {
-            console.error(`Failed to load image on page ${pageNumber} after multiple attempts.`);
+            console.error(`Failed to load image on page ${pageNumber} after multiple CDN attempts.`);
             image.alt = `Failed to load page ${pageNumber}`;
         }
     };
 
-    // Update cache even if image loads successfully from cache
     image.onload = function() {
         updateImageCache(image.src);
     };
@@ -2300,37 +2308,14 @@ if (window.location.href.includes('/continue_reading')) {
         });
     }
 
-// Helper function to find a working image URL
-async function findWorkingImageUrl(mediaId) {
-    for (const subdomain of subdomains) {
-        // Try both webp and png formats
-        const webpUrl = `https://${subdomain}.nhentai.net/galleries/${mediaId}/cover.webp`;
-        const pngUrl = `https://${subdomain}.nhentai.net/galleries/${mediaId}/cover.png`;
-        const jpgUrl = `https://${subdomain}.nhentai.net/galleries/${mediaId}/cover.jpg`;
-
-        console.log(`Trying cover image URL: ${webpUrl}`);
-        const webpExists = await checkImageExists(webpUrl);
-        if (webpExists) {
-            console.log(`Found working URL: ${webpUrl}`);
-            return webpUrl;
-        }
-
-        console.log(`Trying cover image URL: ${pngUrl}`);
-        const pngExists = await checkImageExists(pngUrl);
-        if (pngExists) {
-            console.log(`Found working URL: ${pngUrl}`);
-            return pngUrl;
-        }
-
-        console.log(`Trying cover image URL: ${jpgUrl}`);
-        const jpgExists = await checkImageExists(jpgUrl);
-        if (jpgExists) {
-            console.log(`Found working URL: ${jpgUrl}`);
-            return jpgUrl;
-        }
+// Prefer API cover.path + CDN servers. mediaId fallback only builds one canonical jpg URL (no probing).
+async function findWorkingImageUrl(mediaIdOrPath) {
+    await nhmlFetchCdnConfig().catch(() => null);
+    if (typeof mediaIdOrPath === 'string' && mediaIdOrPath.includes('/')) {
+        return nhmlCdnUrl('thumb', mediaIdOrPath) || nhmlCdnUrl('image', mediaIdOrPath) || '';
     }
-    // If all fail, return the default with t3 subdomain as fallback
-    return `https://t3.nhentai.net/galleries/${mediaId}/cover.jpg`;
+    const path = `galleries/${mediaIdOrPath}/cover.jpg`;
+    return nhmlCdnUrl('thumb', path) || nhmlCdnUrl('image', path) || `https://t3.nhentai.net/${path}`;
 }
 
 // Function to create and display the table
@@ -2413,41 +2398,19 @@ function displayMangaTable() {
                 }
             );
         });
-   
 
-    // Remove loading indicator and add the table
-    loadingIndicator.remove();
-    container.appendChild(table);
-    console.log('Table added to page');
-
-
-            
-            // Handle image loading errors and try alternative subdomains
+            // Handle image loading errors by rotating CDN servers for the same path
             const imgElement = row.querySelector('.manga-cover');
+            let coverAttempt = 0;
             imgElement.addEventListener('error', async function() {
-                console.log(`Image failed to load: ${manga.coverImageUrl}`);
-                
-                // Extract media ID from the URL
-                const urlParts = manga.coverImageUrl.split('/');
-                const mediaId = urlParts[urlParts.length - 2];
-                
-                // Find a working URL
-                const newUrl = await findWorkingImageUrl(mediaId);
-                
-                if (newUrl !== manga.coverImageUrl) {
-                    console.log(`Updating image URL from ${manga.coverImageUrl} to ${newUrl}`);
+                const src = this.src || manga.coverImageUrl || '';
+                const pathMatch = src.match(/galleries\/[^?#]+/);
+                if (!pathMatch || coverAttempt >= 4) return;
+                coverAttempt++;
+                await nhmlFetchCdnConfig().catch(() => null);
+                const newUrl = nhmlCdnUrl('thumb', pathMatch[0], coverAttempt) || nhmlCdnUrl('image', pathMatch[0], coverAttempt);
+                if (newUrl && newUrl !== this.src) {
                     this.src = newUrl;
-                    
-                    // Update the cached metadata with the working URL
-                    const metadataKey = `metadata_${manga.id}`;
-                    GM.getValue(metadataKey, null).then(cachedMetadata => {
-                        if (cachedMetadata) {
-                            const metadata = JSON.parse(cachedMetadata);
-                            metadata.coverImageUrl = newUrl;
-                            GM.setValue(metadataKey, JSON.stringify(metadata))
-                                .then(() => console.log(`Updated cached metadata with new URL for manga ID: ${manga.id}`));
-                        }
-                    });
                 }
             });
         });
@@ -2495,10 +2458,10 @@ function displayMangaTable() {
             if (data) {
                 console.log('Fetched manga data:', data);
                 const mangaTitle = data.title?.english || data.title?.pretty || data.title?.japanese || 'Unknown';
-                const mediaId = data.media_id;
-                
-                // Get a working cover image URL with appropriate subdomain
-                const coverImageUrl = await findWorkingImageUrl(mediaId);
+                await nhmlFetchCdnConfig().catch(() => null);
+                const coverImageUrl = data.cover?.path
+                    ? (nhmlCdnUrl('thumb', data.cover.path) || nhmlCdnUrl('image', data.cover.path))
+                    : await findWorkingImageUrl(data.media_id);
                 
                 // Determine which language to display
                 let languageDisplay = 'Unknown';
@@ -2665,33 +2628,12 @@ function resolveJustReadMetadata() {
                     const data = await resp.json();
                     if (data) {
                         title = data.title?.english || data.title?.pretty || data.title?.japanese || title;
-                        const mediaId = data.media_id;
-                        // Resolve cover: use helper if available, else fallback
-                        let workingCover = null;
-                        try {
-                            if (typeof findWorkingImageUrl === 'function') {
-                                workingCover = await findWorkingImageUrl(mediaId);
-                            }
-                        } catch (_) {
-                            // ignore and fallback
-                        }
-                        if (!workingCover) {
-                            // Fallback across broader subdomains and formats
-                            const subdomainsAll = ['i1', 'i2', 'i3', 'i4', 'i5', 'i7', 't1', 't2', 't3', 't4', 't5', 't7'];
-                            const formats = ['webp', 'png', 'jpg'];
-                            for (const sub of subdomainsAll) {
-                                for (const fmt of formats) {
-                                    const url = `https://${sub}.nhentai.net/galleries/${mediaId}/cover.${fmt}`;
-                                    const ok = await new Promise((resolve) => {
-                                        const img = new Image();
-                                        img.onload = () => resolve(true);
-                                        img.onerror = () => resolve(false);
-                                        img.src = url;
-                                    });
-                                    if (ok) { workingCover = url; break; }
-                                }
-                                if (workingCover) break;
-                            }
+                        await nhmlFetchCdnConfig().catch(() => null);
+                        let workingCover = data.cover?.path
+                            ? (nhmlCdnUrl('thumb', data.cover.path) || nhmlCdnUrl('image', data.cover.path))
+                            : null;
+                        if (!workingCover && data.media_id) {
+                            workingCover = await findWorkingImageUrl(data.media_id);
                         }
                         coverImageUrl = workingCover || coverImageUrl;
 
