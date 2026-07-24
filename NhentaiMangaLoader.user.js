@@ -428,6 +428,7 @@ function getCurrentPage(entry) {
 let reloadMode = false; // Flag to track reload mode
 let hasSavedFinished = false; // Prevent double-saving completion when reaching the end
 let nhmlLoadButtonObserver = null;
+let nhmlLoadButtonInterval = null;
 
 async function createStatsWindow() {
     const statsWindow = document.createElement('div');
@@ -1099,6 +1100,10 @@ async function loadMangaImages(mangaId) {
     if (nhmlLoadButtonObserver) {
         nhmlLoadButtonObserver.disconnect();
         nhmlLoadButtonObserver = null;
+    }
+    if (nhmlLoadButtonInterval) {
+        clearInterval(nhmlLoadButtonInterval);
+        nhmlLoadButtonInterval = null;
     }
     hideElements();
     window.scrollTo(0, 0);
@@ -1945,8 +1950,13 @@ async function saveCurrentPosition(mangaId) {
 
     let nhmlEnsureBtnTimer = 0;
     function nhmlScheduleEnsureLoadButton() {
-        clearTimeout(nhmlEnsureBtnTimer);
-        nhmlEnsureBtnTimer = setTimeout(nhmlAttachLoadMangaButton, 50);
+        // Never reset a pending run: constant hydration churn would otherwise
+        // keep pushing the debounce back and the button would never attach.
+        if (nhmlEnsureBtnTimer) return;
+        nhmlEnsureBtnTimer = setTimeout(() => {
+            nhmlEnsureBtnTimer = 0;
+            nhmlAttachLoadMangaButton();
+        }, 50);
     }
 
     nhmlAttachLoadMangaButton();
@@ -1954,6 +1964,9 @@ async function saveCurrentPosition(mangaId) {
 
     nhmlLoadButtonObserver = new MutationObserver(() => nhmlScheduleEnsureLoadButton());
     nhmlLoadButtonObserver.observe(document.documentElement, { childList: true, subtree: true });
+
+    // Watchdog for late hydration / re-renders that drop the button.
+    nhmlLoadButtonInterval = setInterval(nhmlAttachLoadMangaButton, 1000);
     
     
         
