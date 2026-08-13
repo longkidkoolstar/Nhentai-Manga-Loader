@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Nhentai Manga Loader
 // @namespace    http://www.nhentai.net
-// @version      6.4.0
+// @version      6.4.1
 // @author       longkidkoolstar
 // @description  Loads nhentai manga chapters into one page in a long strip format with image scaling, click events, and a dark mode for reading.
 // @match        https://nhentai.net/*
@@ -12,6 +12,7 @@
 // @grant        GM.setValue
 // @grant        GM.deleteValue
 // @grant        GM.listValues
+// @grant        unsafeWindow
 // @license      MIT
 // @noframes
 // ==/UserScript==
@@ -820,6 +821,46 @@ function nhmlDelay(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+// Tampermonkey/Violentmonkey sandbox: page data lives on unsafeWindow, while
+// @require'd nhentai_userscript_v1 runs in the sandbox and cannot see it.
+function nhmlPageWindow() {
+    try {
+        if (typeof unsafeWindow !== 'undefined' && unsafeWindow) return unsafeWindow;
+    } catch (e) { /* ignore */ }
+    return window;
+}
+
+function nhmlGetPageData() {
+    const w = nhmlPageWindow();
+    return w.nhentai_data_v1 || window.nhentai_data_v1 || null;
+}
+
+function nhmlWaitForPageData(timeoutMs = 4000) {
+    const existing = nhmlGetPageData();
+    if (existing) return Promise.resolve(existing);
+    return new Promise(resolve => {
+        const w = nhmlPageWindow();
+        const eventName = (w.nhentai_userscript_v1 && w.nhentai_userscript_v1.EVENT)
+            || (window.nhentai_userscript_v1 && window.nhentai_userscript_v1.EVENT)
+            || 'nhentai:update';
+        let settled = false;
+        const finish = (data) => {
+            if (settled) return;
+            settled = true;
+            try { w.removeEventListener(eventName, onUpdate); } catch (e) { /* ignore */ }
+            clearTimeout(timer);
+            resolve(data || null);
+        };
+        const onUpdate = () => finish(nhmlGetPageData());
+        const timer = setTimeout(() => finish(nhmlGetPageData()), timeoutMs);
+        try {
+            w.addEventListener(eventName, onUpdate);
+        } catch (e) {
+            finish(null);
+        }
+    });
+}
+
 function nhmlHashCode(str) {
     let hash = 0;
     for (let i = 0; i < str.length; i++) {
@@ -836,22 +877,27 @@ function nhmlPickServer(servers, path, attempt = 0) {
 function nhmlCdnUrl(kind, path, attempt = 0, cdn = null) {
     if (!path) return '';
     if (/^(https?:)?\/\//.test(path)) return path;
-    const nh = window.nhentai_userscript_v1;
-    if (nh && nh.cdn) {
-        return kind === 'thumb' ? nh.cdn.thumb(path, attempt) : nh.cdn.image(path, attempt);
+
+    // Prefer explicit/cached CDN config. Sandboxed nh.cdn often has no page
+    // snapshot and returns empty strings, which previously made every page URL fail.
+    const conf = cdn || nhmlCdnCache || nhmlGetPageData()?.cdn || null;
+    if (conf) {
+        const servers = kind === 'thumb' ? conf.thumb_servers : conf.image_servers;
+        const origin = nhmlPickServer(servers, path, attempt);
+        if (origin) return `${origin}/${path}`;
     }
-    const conf = cdn || nhmlCdnCache;
-    const servers = conf
-        ? (kind === 'thumb' ? conf.thumb_servers : conf.image_servers)
-        : null;
-    const origin = nhmlPickServer(servers, path, attempt);
-    return origin ? `${origin}/${path}` : '';
+
+    const nh = window.nhentai_userscript_v1 || nhmlPageWindow().nhentai_userscript_v1;
+    if (nh && nh.cdn) {
+        const url = kind === 'thumb' ? nh.cdn.thumb(path, attempt) : nh.cdn.image(path, attempt);
+        if (url) return url;
+    }
+    return '';
 }
 
 async function nhmlFetchCdnConfig() {
     if (nhmlCdnCache?.image_servers?.length) return nhmlCdnCache;
-    const nh = window.nhentai_userscript_v1;
-    const fromPage = nh?.get?.()?.cdn;
+    const fromPage = nhmlGetPageData()?.cdn;
     if (fromPage?.image_servers?.length) {
         nhmlCdnCache = fromPage;
         return nhmlCdnCache;
@@ -863,20 +909,15 @@ async function nhmlFetchCdnConfig() {
 }
 
 async function nhmlResolveGallery(mangaId, retryCount = 0) {
-    const nh = window.nhentai_userscript_v1;
-    if (nh) {
-        try {
-            const data = await Promise.race([
-                nh.ready().then(() => nh.get()),
-                nhmlDelay(2500).then(() => null)
-            ]);
-            if (data?.gallery?.pages?.length && String(data.gallery.id) === String(mangaId)) {
-                const cdn = data.cdn || await nhmlFetchCdnConfig();
-                return { gallery: data.gallery, cdn };
-            }
-        } catch (e) {
-            console.warn('userscript helper gallery read failed', e);
+    try {
+        const data = await nhmlWaitForPageData(2500);
+        if (data?.gallery?.pages?.length && String(data.gallery.id) === String(mangaId)) {
+            if (data.cdn?.image_servers?.length) nhmlCdnCache = data.cdn;
+            const cdn = data.cdn || await nhmlFetchCdnConfig();
+            return { gallery: data.gallery, cdn };
         }
+    } catch (e) {
+        console.warn('page gallery read failed', e);
     }
 
     const [galleryRes, cdn] = await Promise.all([
@@ -1208,7 +1249,7 @@ async function loadMangaImages(mangaId) {
         console.log(`Resolved ${pageList.length} pages via API/CDN for gallery ${mid}`);
     } catch (err) {
         console.error('Failed to resolve gallery pages without HTML scraping:', err);
-        alert('Could not load manga metadata (API error or rate limit). Wait a bit and try again.');
+        alert(`Could not load manga metadata (${err?.message || 'API error or rate limit'}). Wait a bit and try again.`);
         return;
     }
     totalImages = totalPages;
